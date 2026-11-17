@@ -251,6 +251,18 @@ function showLogin() {
   stopPoll(); stopClock();
   $('#app').hidden = true;
   $('#loginScreen').hidden = false;
+  // 静态站没有 /api/public，登录页的头像/主题/名称直接从 data.json 的 config 读
+  if (STATIC) {
+    fetch('data.json').then(r => r.json()).then(d => {
+      const c = (d && d.config) || {};
+      document.documentElement.style.setProperty('--theme', c.theme || '#2E9E8F');
+      document.documentElement.style.setProperty('--theme-soft', hexToSoft(c.theme));
+      $('#metaTheme').setAttribute('content', c.theme || '#2E9E8F');
+      if (c.logo) $('#loginLogo').innerHTML = `<img src="${c.logo}" alt="logo">`;
+      if (c.appName) { $('#loginTitle').textContent = c.appName; document.title = c.appName; }
+    }).catch(() => {});
+    return;
+  }
   fetch('/api/public').then(r => r.json()).then(p => {
     if (!S.state) {
       document.documentElement.style.setProperty('--theme', p.theme || '#2E9E8F');
