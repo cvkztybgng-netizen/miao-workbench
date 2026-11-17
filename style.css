@@ -42,11 +42,15 @@ input, select, textarea { font-family: inherit; font-size: 15px; color: var(--te
 /* ---------- 登录页 ---------- */
 .login-screen {
   min-height: 100vh; display: flex; align-items: center; justify-content: center;
-  /* 绿叶底纹叠加绿色渐变 */
-  background-color: var(--theme);
-  background-image: url('/pattern-leaves-dark.svg'), linear-gradient(160deg, var(--theme-deep) 0%, var(--theme) 55%, #7CC7AC 100%);
-  background-size: 260px 260px, cover;
-  background-repeat: repeat, no-repeat;
+  /* 猫狗草地主视觉 + 绿色绿叶纹蒙版（保证登录卡片清晰呈现） */
+  background-color: var(--theme-deep);
+  background-image:
+    url('/pattern-leaves-dark.svg'),
+    linear-gradient(160deg, rgba(31,122,109,.82) 0%, rgba(46,158,143,.70) 48%, rgba(124,199,172,.55) 100%),
+    url('/bg-meadow.jpg');
+  background-size: 260px 260px, cover, cover;
+  background-position: center, center, center 40%;
+  background-repeat: repeat, no-repeat, no-repeat;
   padding: 20px;
 }
 .login-card {
@@ -315,7 +319,25 @@ table.tt th.day.today { background: var(--theme); color: #fff; }
 /* ============ v2：八大板块新增样式 ============ */
 
 /* ---------- 首页指挥舱 ---------- */
-.hero { text-align: center; padding: 22px 16px 18px; }
+.hero {
+  text-align: center; padding: 22px 16px 18px;
+  /* 猫狗草地主视觉 + 绿色绿叶纹蒙版，让时钟/日期/假期更清晰呈现 */
+  position: relative; overflow: hidden;
+  background-color: var(--green-light);
+  background-image:
+    url('/pattern-leaves-dark.svg'),
+    linear-gradient(160deg, rgba(31,122,109,.66) 0%, rgba(46,158,143,.52) 55%, rgba(160,214,190,.42) 100%),
+    url('/bg-meadow.jpg');
+  background-size: 220px 220px, cover, cover;
+  background-position: center, center, center 42%;
+  background-repeat: repeat, no-repeat, no-repeat;
+}
+.hero .hero-clock, .hero .hero-date, .hero .week-badge, .hero .holiday-chip { position: relative; z-index: 1; }
+.hero .hero-clock { color: #fff; text-shadow: 0 2px 10px rgba(20,60,48,.45); }
+.hero .hero-date { color: rgba(255,255,255,.92); text-shadow: 0 1px 6px rgba(20,60,48,.4); }
+.hero .week-badge { background: rgba(255,255,255,.9); color: var(--theme-deep); }
+.hero .holiday-chip { background: rgba(255,255,255,.86); color: var(--theme-deep); }
+.hero .holiday-chip.soon { background: rgba(232,115,124,.92); color: #fff; }
 .hero-clock {
   font-size: 52px; font-weight: 800; letter-spacing: 2px; color: var(--theme-deep);
   font-variant-numeric: tabular-nums; line-height: 1.1;
@@ -476,6 +498,29 @@ table.tt th.day.today { background: var(--theme); color: #fff; }
 }
 .comfort-img { width: 100%; height: 150px; object-fit: cover; display: block; background: var(--green-light); }
 .comfort-body { padding: 12px 14px; }
+.thumb-grid { border-radius: 0; }
+.thumb img { image-rendering: auto; }
+/* 安抚银行二次门禁 */
+.comfort-gate {
+  max-width: 380px; margin: 24px auto; padding: 34px 26px 26px; text-align: center;
+  background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+  box-shadow: 0 8px 30px rgba(20,60,48,.08);
+}
+.comfort-gate .cg-icon {
+  width: 64px; height: 64px; margin: 0 auto 14px; border-radius: 20px;
+  background: linear-gradient(150deg, var(--theme-deep), #7CC7AC);
+  display: flex; align-items: center; justify-content: center; font-size: 30px;
+  box-shadow: 0 8px 22px rgba(46,158,143,.3);
+}
+.comfort-gate .cg-title { font-size: 19px; font-weight: 700; color: var(--theme-deep); }
+.comfort-gate .cg-sub { color: var(--muted); font-size: 13px; margin: 8px 0 20px; line-height: 1.6; }
+.comfort-gate #comfortGateInput {
+  width: 100%; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 12px;
+  margin-bottom: 12px; outline: none; transition: border .2s;
+}
+.comfort-gate #comfortGateInput:focus { border-color: var(--theme); }
+.comfort-gate .cg-err { color: var(--danger); font-size: 12.5px; min-height: 18px; margin-top: 10px; }
+.comfort-gate .cg-hint { color: var(--muted); font-size: 11.5px; margin-top: 14px; }
 
 /* ============ v4：首页月历 ============ */
 .cal-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
@@ -904,3 +949,9 @@ body.static .card:has(#noticeQuickForm) { display: none !important; }
 .ap-sess-ops { margin-left: auto; display: flex; gap: 6px; }
 .ap-sess-ops button { border: none; background: none; color: var(--theme-deep); font-size: 12px; padding: 2px 5px; }
 .ap-sess-ops button:hover { text-decoration: underline; }
+
+/* ============ v5：教案放大 / 修订 / 导入 ============ */
+.r-title.lesson-open { cursor: pointer; color: var(--theme-deep); }
+.r-title.lesson-open:hover { text-decoration: underline; }
+.lesson-open-ic { color: var(--theme); font-size: 12px; margin-left: 2px; opacity: .7; }
+.lesson-import-preview .doc-render { max-height: 42vh; overflow: auto; }

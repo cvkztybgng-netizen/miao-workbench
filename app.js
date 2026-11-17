@@ -76,6 +76,10 @@ let TOKEN = localStorage.getItem('wb_token') || '';
 /* 静态快照模式（GitHub Pages 导出）：只读展示 */
 const STATIC = typeof window !== 'undefined' && window.__STATIC__ === true;
 
+/* 安抚银行二次门禁密码（如需更换，改这一处即可，静态站重新导出后生效） */
+const COMFORT_PASS = '20262026';
+const comfortUnlocked = () => sessionStorage.getItem('wb_comfort_ok') === '1';
+
 async function api(method, path, body) {
   if (STATIC) {
     if (method === 'GET' && S.state) return S.state;
@@ -533,7 +537,7 @@ function viewSection(sectionKey) {
       else if (m.key === 'case') body = viewCase(m);
       else if (m.key === 'roster') body = viewRosterByClass(m);
       else if (m.key === 'appoint') body = viewAppoint(m);
-      else if (m.key === 'comfort') body = viewComfort(m);
+      else if (m.key === 'comfort') body = comfortUnlocked() ? viewComfort(m) : comfortGateHtml();
       else if (m.key === 'trainnote') body = viewTrainDocs(m);
       else if (m.key === 'track') body = viewTrack(m);
       else body = m.viewMode === 'kanban' ? viewKanban(m) : viewModule(m);
@@ -900,6 +904,125 @@ function openCaseView(r) {
     <div class="cv-body">${paras || '<p class="hint">暂无跟进记录</p>'}</div>${follow}`, 'doc-wide');
 }
 
+/* ================= 教案：原地放大 / 修订 / 导入 ================= */
+// 收集教案正文：note 字段 + Markdown 附件文本（合并展示）
+async function lessonBodyText(r) {
+  const d = r.data || {};
+  let text = String(d.note || '');
+  const mdFiles = (d.files || []).map(id => (S.state.files || []).find(f => f.id === id))
+    .filter(f => f && (/\.(md|markdown)$/i.test(f.name || '') || /markdown|text\/plain/.test(f.mime || '')));
+  for (const f of mdFiles) {
+    try {
+      const res = await fetch(STATIC ? ('files/' + f.id + '.md') : ('/api/files/' + f.id + '?t=' + encodeURIComponent(TOKEN)));
+      if (res.ok) {
+        const t = await res.text();
+        if (t && t.trim()) text += (text ? '\n\n' : '') + '> 附件：' + f.name + '\n\n' + t;
+      }
+    } catch (e) { /* 单个附件读取失败不影响其余 */ }
+  }
+  return text;
+}
+
+async function openLessonView(r) {
+  const d = r.data || {};
+  const body = await lessonBodyText(r);
+  const files = (d.files || []).map(fileChip).join('');
+  const linked = recordsOf('track').filter(t => t.data.lessonId === r.id)
+    .sort((a, b) => String(b.data.date || '').localeCompare(String(a.data.date || '')));
+  const tracksHtml = linked.length ? `<div class="lesson-track">
+    <div class="lt-head"><b>📝 关联课堂记录</b><span class="lt-count">${linked.length} 条</span></div>
+    ${linked.map(t => `<div class="lt-item" data-track-view="${t.id}" data-track-from-lesson="1" style="cursor:pointer">
+      <span class="lt-date">${formatDateCN(t.data.date) || ''}${t.data.clazz ? ' · ' + esc(t.data.clazz) : ''}</span>
+      <span class="lt-text">${esc(String(t.data.situation || '').slice(0, 100))}</span></div>`).join('')}
+  </div>` : '';
+  const meta = [d.type, d.link ? `<a class="url-chip" href="${esc(/^https?:\/\//i.test(d.link) ? d.link : 'https://' + d.link)}" target="_blank" rel="noopener">🔗 相关链接</a>` : '']
+    .filter(Boolean).join(' · ');
+  openModal(`<div class="m-head-row"><b>📖 ${esc(d.title || '教学设计')}</b><button class="m-close" data-close>✕</button></div>
+    ${meta ? `<div class="doc-meta-bar">${meta} · ${body.length} 字</div>` : `<div class="doc-meta-bar">${body.length} 字</div>`}
+    <div class="doc-render">${mdToHtml(flowify(body)) || '<p class="hint">（这份教案还没有正文，点下方「修订正文」开始写）</p>'}</div>
+    ${files ? `<div class="r-files" style="margin-top:12px">${files}</div>` : ''}
+    ${tracksHtml}
+    <div class="m-foot">
+      <button type="button" class="btn" data-close>关闭</button>
+      ${STATIC ? '' : `<button type="button" class="btn primary" data-lesson-revise="${r.id}">✏️ 修订正文</button>`}
+    </div>`, 'doc-wide');
+}
+
+function openLessonEditor(r) {
+  const d = r.data || {};
+  openModal(`<h2>✏️ 修订 · ${esc(d.title || '教学设计')}<span class="doc-save-state" id="lessonSaveState"></span><button class="m-close" data-close>✕</button></h2>
+    <div class="field" style="margin-bottom:10px"><label>标题</label><input type="text" id="lessonTitle" value="${esc(d.title || '')}"></div>
+    <textarea id="lessonBody" class="doc-editor" placeholder="用 Markdown 写教学设计：
+# 课题
+- 目标 / 重难点 / 流程
+**活动**：说明…">${esc(d.note || '')}</textarea>
+    <div id="lessonPreview" class="doc-render" hidden></div>
+    <div class="doc-tools">
+      <button type="button" class="btn sm" id="lessonToggle">👁 预览</button>
+      <span class="hint" id="lessonWords"></span>
+      <button type="button" class="btn primary sm" id="lessonSave">保存</button>
+    </div>`, 'doc-wide');
+  const ta = $('#lessonBody');
+  const words = () => { const el = $('#lessonWords'); if (el) el.textContent = ta.value.length + ' 字'; };
+  words();
+  let timer = null;
+  const save = async silent => {
+    try {
+      const data = Object.assign({}, r.data, { title: $('#lessonTitle').value.trim() || r.data.title, note: ta.value });
+      const res = await api('PUT', '/api/records/' + r.id, { data });
+      Object.assign(r.data, data);
+      await loadState();
+      const st = $('#lessonSaveState');
+      if (st) { st.textContent = silent ? '已自动保存 ✓' : '已保存 ✓'; setTimeout(() => { const s2 = $('#lessonSaveState'); if (s2) s2.textContent = ''; }, 1800); }
+      if (!silent) { closeModal(); rerender(); }
+    } catch (err) { toast('保存失败：' + err.message); }
+  };
+  ta.addEventListener('input', () => {
+    words();
+    const st = $('#lessonSaveState'); if (st) st.textContent = '编辑中…';
+    clearTimeout(timer); timer = setTimeout(() => save(true), 2000);
+  });
+  ta.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); clearTimeout(timer); save(false); } });
+  $('#lessonSave').addEventListener('click', () => { clearTimeout(timer); save(false); });
+  $('#lessonToggle').addEventListener('click', () => {
+    const pv = $('#lessonPreview');
+    if (pv.hidden) { pv.innerHTML = mdToHtml(flowify(ta.value)) || '<p class="hint">（空）</p>'; pv.hidden = false; ta.hidden = true; $('#lessonToggle').textContent = '✏️ 编辑'; }
+    else { pv.hidden = true; ta.hidden = false; $('#lessonToggle').textContent = '👁 预览'; ta.focus(); }
+  });
+}
+
+function openLessonImport() {
+  openModal(`<h2>📥 导入教学设计<button class="m-close" data-close>✕</button></h2>
+    <p class="hint" style="margin:4px 0 12px">选择 Markdown / 文本文件，自动读取内容生成一份教案；标题取文件名，正文可继续修订。</p>
+    <input type="file" id="lessonImportFile" accept=".md,.markdown,.txt,text/markdown,text/plain" class="file-input">
+    <div id="lessonImportPreview" class="doc-render" style="max-height:260px;overflow:auto;margin-top:10px" hidden></div>
+    <div class="m-foot"><button type="button" class="btn" data-close>取消</button>
+      <button type="button" class="btn primary" id="lessonImportSave" disabled>导入为教案</button></div>`, 'doc-wide');
+  const input = $('#lessonImportFile');
+  let loaded = null;
+  input.addEventListener('change', async () => {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { toast('文件超过 5MB，请拆分后再导入'); return; }
+    const text = await f.text();
+    loaded = { name: f.name.replace(/\.(md|markdown|txt)$/i, ''), text };
+    const pv = $('#lessonImportPreview');
+    pv.innerHTML = `<div class="doc-meta-bar">${f.name} · ${text.length} 字</div><div class="doc-render">${mdToHtml(flowify(text.slice(0, 4000)))}</div>`;
+    pv.hidden = false;
+    $('#lessonImportSave').disabled = false;
+  });
+  $('#lessonImportSave').addEventListener('click', async () => {
+    if (!loaded) return;
+    const btn = $('#lessonImportSave'); btn.disabled = true; btn.textContent = '导入中…';
+    try {
+      const data = { title: loaded.name, type: '教案', note: loaded.text, link: '', files: [] };
+      await api('POST', '/api/records', { module: 'lesson', data });
+      await loadState();
+      closeModal(); rerender(); toast('已导入为教案 ✓ 点标题可查看全文');
+    } catch (err) { toast('导入失败：' + err.message); btn.disabled = false; btn.textContent = '导入为教案'; }
+  });
+}
+
 function viewModule(m) {
   let recs = recordsOf(m.key);
   if (S.search) {
@@ -947,12 +1070,17 @@ function viewModule(m) {
           </div>`).join('') : ''}
         </div>`;
     }
+    const titleHtml = isLesson
+      ? `<span class="r-title lesson-open" data-lesson-view="${r.id}" title="点击查看教案全文">${esc(recTitle(m, r))} <span class="lesson-open-ic">⤢</span></span>`
+      : `<span class="r-title">${esc(recTitle(m, r))}</span>`;
+    const lessonActions = isLesson ? `<button data-lesson-revise="${r.id}">✏️ 修订正文</button>` : '';
     return `<div class="rec-card">
-      <div class="r-head"><span class="r-title">${esc(recTitle(m, r))}</span>${tag}</div>
+      <div class="r-head">${titleHtml}${tag}</div>
       <div class="r-grid">${items}</div>
       ${filesHtml}
       ${trackHtml}
       <div class="r-actions">
+        ${lessonActions}
         <button data-rec-edit="${r.id}">编辑</button>
         <button data-rec-del="${r.id}">删除</button>
       </div>
@@ -962,10 +1090,11 @@ function viewModule(m) {
   const resTools = m.key === 'resource' ? `
       <button class="btn" id="importLinkBtn">🔗 链接导入</button>
       <button class="btn" id="fetchRssBtn">⚡ 抓取订阅源</button>` : '';
+  const lessonTools = m.key === 'lesson' ? `<button class="btn" id="lessonImportBtn">📥 导入教学设计</button>` : '';
   return `
     <div class="rec-toolbar">
       <input id="recSearch" placeholder="搜索…" value="${esc(S.search)}">
-      ${resTools}
+      ${resTools}${lessonTools}
       <button class="btn primary" id="recAddBtn">＋ 新增</button>
     </div>
     ${m.key === 'resource' ? '<p class="hint">🌐 小红书/公众号无开放API：用「链接导入」收藏公众号文章，或在设置里配置 RSS 订阅源（每日 8 点自动抓取）。</p>' : ''}
@@ -2104,6 +2233,20 @@ function viewRelax() {
 }
 
 /* ================= 自我关怀 · 安抚银行 ================= */
+// 二次门禁：进入安抚银行需再输一道密码（前端门，防误触/随手翻看）
+function comfortGateHtml() {
+  return `<div class="comfort-gate">
+    <div class="cg-icon">🔐</div>
+    <div class="cg-title">安抚银行 · 私享空间</div>
+    <p class="cg-sub">这里存着你最柔软的时刻。请输入专属口令开启。</p>
+    <form id="comfortGateForm" autocomplete="off">
+      <input type="password" id="comfortGateInput" placeholder="请输入安抚银行口令" autocomplete="current-password" required>
+      <button type="submit" class="btn primary block">开启</button>
+      <div class="cg-err" id="comfortGateErr"></div>
+    </form>
+    <p class="cg-hint">口令仅在本次会话有效，刷新或退出后需重新输入</p>
+  </div>`;
+}
 function viewComfort(m) {
   const recs = recordsOf(m.key).slice().sort((a, b) => String(b.data.date || b.createdAt).localeCompare(String(a.data.date || a.createdAt)));
   const card = r => {
@@ -2935,6 +3078,19 @@ function bindGlobal() {
       if (r) openCaseView(r);
       return;
     }
+    const lessonRevise = e.target.closest('[data-lesson-revise]');
+    if (lessonRevise) {
+      const r = S.state.records.find(x => x.id === lessonRevise.getAttribute('data-lesson-revise'));
+      if (r) openLessonEditor(r);
+      return;
+    }
+    const lessonView = e.target.closest('[data-lesson-view]');
+    if (lessonView) {
+      const r = S.state.records.find(x => x.id === lessonView.getAttribute('data-lesson-view'));
+      if (r) openLessonView(r);
+      return;
+    }
+    if (e.target.id === 'lessonImportBtn') { openLessonImport(); return; }
     if (e.target.id === 'docNewBtn') { newDoc(); return; }
     const mdView = e.target.closest('[data-mdview]');
     if (mdView) { e.preventDefault(); openMdPreview(mdView.getAttribute('data-mdview')); return; }
@@ -3356,6 +3512,21 @@ function bindGlobal() {
   });
 
   $('#main').addEventListener('submit', async e => {
+    if (e.target.id === 'comfortGateForm') {
+      e.preventDefault();
+      const pw = $('#comfortGateInput').value;
+      if (pw === COMFORT_PASS) {
+        sessionStorage.setItem('wb_comfort_ok', '1');
+        rerender();
+        toast('已开启安抚银行 💚');
+      } else {
+        const err = $('#comfortGateErr');
+        if (err) err.textContent = '口令不对，请再试一次';
+        const inp = $('#comfortGateInput');
+        if (inp) { inp.value = ''; inp.focus(); }
+      }
+      return;
+    }
     if (e.target.id === 'todoQuickForm') {
       e.preventDefault();
       const text = $('#todoText').value.trim();
