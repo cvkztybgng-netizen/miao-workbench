@@ -770,8 +770,16 @@ function flowify(text) {
   for (const b of src.split(/\n\s*\n/)) {
     b.trim();
     if (!b.trim()) continue;
-    // 【…】标记前一定另起一段
-    b.replace(/\s+$/g, '').split(/(?=【)/).forEach(s => { s = s.trim(); if (s) pieces.push(s); });
+    // 【…】标记前另起一段；但 ## 【标题】 这种 Markdown 标题要保持完整，不能拆
+    b.replace(/\s+$/g, '')
+      .split(/\n+/)
+      .forEach(line => {
+        line = line.trim();
+        if (!line) return;
+        // 已是 Markdown 标题/列表的行整行保留；普通行则在【前断开
+        if (/^(#{1,6}\s|[-*+]\s|\d+[.、]\s|&gt;|>|```)/.test(line)) { pieces.push(line); return; }
+        line.split(/(?=【)/).forEach(s => { s = s.trim(); if (s) pieces.push(s); });
+      });
   }
   const isSpecial = s => /^(#{1,6}\s|[-*+]\s|\d+[.、]\s|&gt;|>|```|---)/.test(s);
   const out = [];
@@ -1044,12 +1052,25 @@ function viewModule(m) {
   }
 
   const card = r => {
+    const isLesson = m.key === 'lesson';
     const items = m.fields.filter(f => {
       const v = r.data[f.key];
       return v !== undefined && v !== '' && !(Array.isArray(v) && !v.length) && f.type !== 'files';
     }).map(f => {
       const isLong = f.type === 'textarea';
-      const val = f.type === 'date' ? formatDateCN(r.data[f.key]) : f.type === 'url' ? urlBtn(r.data[f.key]) : esc(r.data[f.key]);
+      let val;
+      if (f.type === 'date') val = formatDateCN(r.data[f.key]);
+      else if (f.type === 'url') val = urlBtn(r.data[f.key]);
+      else if (isLesson && f.key === 'note') {
+        // 教学设计正文在卡片里只显示干净摘要（去 Markdown 标记），全文点标题放大看
+        const clean = String(r.data.note || '')
+          .replace(/^#{1,6}\s*/gm, '')
+          .replace(/\*\*/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        val = `<span class="note-preview">${esc(clean.slice(0, 160))}${clean.length > 160 ? '…' : ''}</span>`;
+      }
+      else val = esc(r.data[f.key]);
       return `<div class="r-item${isLong || f.type === 'url' ? ' full' : ''}"><b>${esc(f.label)}</b>${val}</div>`;
     }).join('');
     const allFiles = [];
@@ -1060,7 +1081,6 @@ function viewModule(m) {
     const tag = r.data.level === '一级（高危）' ? '<span class="r-tag warn">🚨 高危</span>'
       : r.data.status ? `<span class="r-tag">${esc(r.data.status)}</span>`
       : r.data.notice ? `<span class="r-tag${r.data.notice === '已通知到位' ? '' : ' warn'}">${esc(r.data.notice)}</span>` : '';
-    const isLesson = m.key === 'lesson';
     let trackHtml = '';
     if (isLesson) {
       const linked = recordsOf('track')
