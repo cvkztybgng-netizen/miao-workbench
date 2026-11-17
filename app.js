@@ -82,6 +82,27 @@ const comfortUnlocked = () => sessionStorage.getItem('wb_comfort_ok') === '1';
 /* 我的履历门禁：与安抚银行同一口令，但独立会话状态，两处互不干扰 */
 const resumeUnlocked = () => sessionStorage.getItem('wb_resume_ok') === '1';
 
+/* 隐私区（个案/访谈/测评）加密口令：静态站数据用此口令加密，本机输入后解密。
+   与导出端 export-static.js 的 PRIVACY_PASS 对应，两处必须一致。 */
+const PRIVACY_PASS = '20262026';
+
+/* Web Crypto 解密 privacy.enc → 隐私记录数组（PBKDF2-SHA256 + AES-GCM，与导出端对齐） */
+async function decryptPrivacy(pw) {
+  const res = await fetch('privacy.enc');
+  if (!res.ok) throw new Error('加密数据读取失败');
+  const p = await res.json();
+  const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+  const aes = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: b64(p.salt), iterations: 120000, hash: 'SHA-256' },
+    km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  const d = b64(p.data), t = b64(p.tag);
+  const combined = new Uint8Array(d.length + t.length);
+  combined.set(d); combined.set(t, d.length);
+  const buf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(p.iv) }, aes, combined);
+  return JSON.parse(new TextDecoder().decode(buf));
+}
+
 async function api(method, path, body) {
   if (STATIC) {
     if (method === 'GET' && S.state) return S.state;
@@ -121,7 +142,8 @@ const S = {
   docSave: null,
   expCat: null,         // 个人经历：类别筛选
   rosterClass: '',      // 学生名册：当前选中的班级
-  apOpenGroups: new Set() // 预约：展开的周期组
+  apOpenGroups: new Set(), // 预约：展开的周期组
+  privacyUnlocked: false  // 静态站隐私区：本机解密后的解锁状态（仅内存，刷新需重输）
 };
 
 async function loadState() {
@@ -513,6 +535,13 @@ function viewOverview() {
 function viewSection(sectionKey) {
   const sec = SECTIONS[sectionKey];
   if (!sec) return '<div class="empty">板块不存在</div>';
+  // 隐私红线区（个辅/危机干预）：静态站数据已加密，需本机口令解密后注入
+  if (STATIC && sec.privacy && S.state.privacy && S.state.privacy.encrypted && !S.privacyUnlocked) {
+    return `<div>
+      <div class="sec-head"><span class="sec-ic">${sec.icon}</span><div><div class="sec-name">${esc(sec.name)}</div><div class="sec-desc">${esc(sec.desc)}</div></div></div>
+      <div class="sec-body">${privacyGateHtml(sec)}</div>
+    </div>`;
+  }
   // 我的履历：进入板块前先过二次口令门（与安抚银行同口令，独立会话状态）
   if (sectionKey === 'me' && !resumeUnlocked()) {
     return `<div>
@@ -2300,6 +2329,21 @@ function resumeGateHtml() {
     <p class="cg-hint">口令仅在本次会话有效，刷新或退出后需重新输入</p>
   </div>`;
 }
+// 隐私区加密解锁门：数据以密文存储，输入口令在本机解密
+function privacyGateHtml(sec) {
+  const n = (S.state.privacy && S.state.privacy.count) || 0;
+  return `<div class="comfort-gate">
+    <div class="cg-icon">🔐</div>
+    <div class="cg-title">${esc(sec.name)} · 加密档案</div>
+    <p class="cg-sub">这里存着 ${n} 条加密的隐私档案。数据以密文保存，请输入专属口令在本机解密查看。</p>
+    <form id="privacyGateForm" autocomplete="off">
+      <input type="password" id="privacyGateInput" placeholder="请输入解密口令" autocomplete="current-password" required>
+      <button type="submit" class="btn primary block" id="privacyGateBtn">解密查看</button>
+      <div class="cg-err" id="privacyGateErr"></div>
+    </form>
+    <p class="cg-hint">解密只在你这台设备内存中进行，不会上传或落盘；刷新后需重新输入</p>
+  </div>`;
+}
 function viewComfort(m) {
   const recs = recordsOf(m.key).slice().sort((a, b) => String(b.data.date || b.createdAt).localeCompare(String(a.data.date || a.createdAt)));
   const card = r => {
@@ -3593,6 +3637,31 @@ function bindGlobal() {
         if (err) err.textContent = '口令不对，请再试一次';
         const inp = $('#resumeGateInput');
         if (inp) { inp.value = ''; inp.focus(); }
+      }
+      return;
+    }
+    if (e.target.id === 'privacyGateForm') {
+      e.preventDefault();
+      const pw = $('#privacyGateInput').value;
+      const btn = $('#privacyGateBtn');
+      const err = $('#privacyGateErr');
+      if (err) err.textContent = '';
+      if (!pw) return;
+      btn.disabled = true; btn.textContent = '解密中…';
+      try {
+        const recs = await decryptPrivacy(pw);
+        if (!Array.isArray(recs)) throw new Error('数据格式异常');
+        // 合并解密记录进内存（只加隐私模块，不覆盖已有）
+        const have = new Set((S.state.records || []).map(r => r.id));
+        for (const r of recs) if (!have.has(r.id)) S.state.records.push(r);
+        S.privacyUnlocked = true;
+        rerender();
+        toast(`已解密 ${recs.length} 条隐私档案 🔐`);
+      } catch (ex) {
+        if (err) err.textContent = '口令不对，或数据损坏，请重试';
+        const inp = $('#privacyGateInput');
+        if (inp) { inp.value = ''; inp.focus(); }
+        btn.disabled = false; btn.textContent = '解密查看';
       }
       return;
     }
