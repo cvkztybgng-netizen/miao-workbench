@@ -76,9 +76,11 @@ let TOKEN = localStorage.getItem('wb_token') || '';
 /* 静态快照模式（GitHub Pages 导出）：只读展示 */
 const STATIC = typeof window !== 'undefined' && window.__STATIC__ === true;
 
-/* 安抚银行二次门禁密码（如需更换，改这一处即可，静态站重新导出后生效） */
+/* 二次门禁密码（如需更换，改这一处即可，静态站重新导出后生效） */
 const COMFORT_PASS = '20262026';
 const comfortUnlocked = () => sessionStorage.getItem('wb_comfort_ok') === '1';
+/* 我的履历门禁：与安抚银行同一口令，但独立会话状态，两处互不干扰 */
+const resumeUnlocked = () => sessionStorage.getItem('wb_resume_ok') === '1';
 
 async function api(method, path, body) {
   if (STATIC) {
@@ -511,6 +513,13 @@ function viewOverview() {
 function viewSection(sectionKey) {
   const sec = SECTIONS[sectionKey];
   if (!sec) return '<div class="empty">板块不存在</div>';
+  // 我的履历：进入板块前先过二次口令门（与安抚银行同口令，独立会话状态）
+  if (sectionKey === 'me' && !resumeUnlocked()) {
+    return `<div>
+      <div class="sec-head"><span class="sec-ic">${sec.icon}</span><div><div class="sec-name">${esc(sec.name)}</div><div class="sec-desc">${esc(sec.desc)}</div></div></div>
+      <div class="sec-body">${resumeGateHtml()}</div>
+    </div>`;
+  }
   const mods = S.state.config.modules.filter(m => m.section === sectionKey);
   const tabs = [];
   if (sectionKey === 'class') tabs.push({ key: 'timetable', name: '聚合周课表', icon: '🗓️' });
@@ -2247,6 +2256,20 @@ function comfortGateHtml() {
     <p class="cg-hint">口令仅在本次会话有效，刷新或退出后需重新输入</p>
   </div>`;
 }
+// 我的履历门禁：进入履历板块需再输一道密码（与安抚银行同口令）
+function resumeGateHtml() {
+  return `<div class="comfort-gate">
+    <div class="cg-icon">🪪</div>
+    <div class="cg-title">我的履历 · 私人档案</div>
+    <p class="cg-sub">这里记录着你的教育与工作历程。请输入专属口令开启。</p>
+    <form id="resumeGateForm" autocomplete="off">
+      <input type="password" id="resumeGateInput" placeholder="请输入履历口令" autocomplete="current-password" required>
+      <button type="submit" class="btn primary block">开启</button>
+      <div class="cg-err" id="resumeGateErr"></div>
+    </form>
+    <p class="cg-hint">口令仅在本次会话有效，刷新或退出后需重新输入</p>
+  </div>`;
+}
 function viewComfort(m) {
   const recs = recordsOf(m.key).slice().sort((a, b) => String(b.data.date || b.createdAt).localeCompare(String(a.data.date || a.createdAt)));
   const card = r => {
@@ -3523,6 +3546,21 @@ function bindGlobal() {
         const err = $('#comfortGateErr');
         if (err) err.textContent = '口令不对，请再试一次';
         const inp = $('#comfortGateInput');
+        if (inp) { inp.value = ''; inp.focus(); }
+      }
+      return;
+    }
+    if (e.target.id === 'resumeGateForm') {
+      e.preventDefault();
+      const pw = $('#resumeGateInput').value;
+      if (pw === COMFORT_PASS) {
+        sessionStorage.setItem('wb_resume_ok', '1');
+        rerender();
+        toast('已开启我的履历 🪪');
+      } else {
+        const err = $('#resumeGateErr');
+        if (err) err.textContent = '口令不对，请再试一次';
+        const inp = $('#resumeGateInput');
         if (inp) { inp.value = ''; inp.focus(); }
       }
       return;
