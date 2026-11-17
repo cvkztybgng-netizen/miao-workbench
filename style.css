@@ -31,7 +31,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
   background-color: var(--bg);
   /* 绿叶植物底纹（低透明度平铺，降低视觉疲劳） */
-  background-image: url('/pattern-leaves-light.svg');
+  background-image: url('./pattern-leaves-light.svg');
   background-size: 300px 300px;
   color: var(--text); font-size: 15px;
   overscroll-behavior-y: none;
@@ -45,9 +45,9 @@ input, select, textarea { font-family: inherit; font-size: 15px; color: var(--te
   /* 猫狗草地主视觉 + 绿色绿叶纹蒙版（保证登录卡片清晰呈现） */
   background-color: var(--theme-deep);
   background-image:
-    url('/pattern-leaves-dark.svg'),
+    url('./pattern-leaves-dark.svg'),
     linear-gradient(160deg, rgba(31,122,109,.82) 0%, rgba(46,158,143,.70) 48%, rgba(124,199,172,.55) 100%),
-    url('/bg-meadow.jpg');
+    url('./bg-meadow.jpg');
   background-size: 260px 260px, cover, cover;
   background-position: center, center, center 40%;
   background-repeat: repeat, no-repeat, no-repeat;
@@ -190,10 +190,10 @@ input, select, textarea { font-family: inherit; font-size: 15px; color: var(--te
 .zone-card b { font-size: 14.5px; }
 .zone-card span { font-size: 12px; opacity: .85; }
 .zone-card:active { opacity: .85; }
-.zone-card.zc-jw { background-image: url('/pattern-leaves-dark.svg'), linear-gradient(135deg, var(--c-jw), #3BA795); }
-.zone-card.zc-sw { background-image: url('/pattern-leaves-dark.svg'), linear-gradient(135deg, var(--c-sw), #82C9AC); }
-.zone-card.zc-an { background-image: url('/pattern-leaves-dark.svg'), linear-gradient(135deg, var(--c-an), #F09097); }
-.zone-card.zc-pv { background-image: url('/pattern-leaves-dark.svg'), linear-gradient(135deg, var(--c-pv), #94A0B0); }
+.zone-card.zc-jw { background-image: url('./pattern-leaves-dark.svg'), linear-gradient(135deg, var(--c-jw), #3BA795); }
+.zone-card.zc-sw { background-image: url('./pattern-leaves-dark.svg'), linear-gradient(135deg, var(--c-sw), #82C9AC); }
+.zone-card.zc-an { background-image: url('./pattern-leaves-dark.svg'), linear-gradient(135deg, var(--c-an), #F09097); }
+.zone-card.zc-pv { background-image: url('./pattern-leaves-dark.svg'), linear-gradient(135deg, var(--c-pv), #94A0B0); }
 .today-row {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; margin-bottom: 6px;
   background: var(--theme-soft);
@@ -325,9 +325,9 @@ table.tt th.day.today { background: var(--theme); color: #fff; }
   position: relative; overflow: hidden;
   background-color: var(--green-light);
   background-image:
-    url('/pattern-leaves-dark.svg'),
+    url('./pattern-leaves-dark.svg'),
     linear-gradient(160deg, rgba(31,122,109,.66) 0%, rgba(46,158,143,.52) 55%, rgba(160,214,190,.42) 100%),
-    url('/bg-meadow.jpg');
+    url('./bg-meadow.jpg');
   background-size: 220px 220px, cover, cover;
   background-position: center, center, center 42%;
   background-repeat: repeat, no-repeat, no-repeat;
@@ -409,7 +409,7 @@ table.tt th.day.today { background: var(--theme); color: #fff; }
 .privacy-zone::before {
   content: '';
   position: absolute; inset: 0; border-radius: 16px;
-  background-image: url('/pattern-lock.svg');
+  background-image: url('./pattern-lock.svg');
   background-size: 200px 200px;
   pointer-events: none; opacity: .8;
 }
