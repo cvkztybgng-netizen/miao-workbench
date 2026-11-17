@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+  <!-- 深色底纹：白色绿叶（用于绿色渐变面之上） -->
+  <g fill="#FFFFFF" fill-opacity="0.09">
+    <!-- 左上叶枝 -->
+    <g transform="translate(20,32) rotate(-24)">
+      <path d="M0,0 C15,-7 36,-9 55,0 C36,11 15,11 0,0 Z"/>
+      <path d="M11,15 C24,8 43,8 58,17 C43,28 24,28 11,15 Z" transform="rotate(13 11 15)"/>
+      <path d="M7,-17 C18,-25 35,-27 48,-21 C35,-10 18,-8 7,-17 Z"/>
+    </g>
+    <!-- 右下叶枝 -->
+    <g transform="translate(206,196) rotate(148)">
+      <path d="M0,0 C14,-6 34,-8 52,0 C34,10 14,10 0,0 Z"/>
+      <path d="M10,14 C22,8 40,8 54,16 C40,26 22,26 10,14 Z" transform="rotate(12 10 14)"/>
+      <path d="M6,-15 C16,-23 32,-25 44,-19 C32,-9 16,-7 6,-15 Z"/>
+    </g>
+    <!-- 中部单片 -->
+    <g transform="translate(110,120) rotate(30)">
+      <path d="M0,0 C11,-8 27,-10 38,-3 C27,8 11,10 0,0 Z"/>
+    </g>
+    <!-- 茎线 -->
+    <g fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1.6">
+      <path d="M24,40 Q64,22 92,36"/>
+      <path d="M202,202 Q180,222 164,236"/>
+    </g>
+  </g>
+</svg>

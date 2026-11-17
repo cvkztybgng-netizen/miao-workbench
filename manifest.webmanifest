@@ -1,0 +1,15 @@
+{
+  "name": "miao的工作台",
+  "short_name": "工作台",
+  "description": "学校心理老师 × 合唱团 × 教师培训师的私有云端工作台",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F3F7F4",
+  "theme_color": "#2E9E8F",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

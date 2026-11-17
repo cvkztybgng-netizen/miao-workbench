@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280" viewBox="0 0 280 280">
+  <!-- 浅色底纹：疗愈绿叶（用于浅色页面背景） -->
+  <g fill="#2E9E8F" fill-opacity="0.06">
+    <!-- 左上叶枝 -->
+    <g transform="translate(24,36) rotate(-28)">
+      <path d="M0,0 C16,-7 38,-9 58,0 C38,11 16,11 0,0 Z"/>
+      <path d="M12,16 C26,9 46,9 62,18 C46,30 26,30 12,16 Z" transform="rotate(14 12 16)"/>
+      <path d="M8,-18 C20,-27 38,-29 52,-22 C38,-11 20,-9 8,-18 Z"/>
+    </g>
+    <!-- 右中叶枝 -->
+    <g transform="translate(216,120) rotate(150)">
+      <path d="M0,0 C14,-6 34,-8 52,0 C34,10 14,10 0,0 Z"/>
+      <path d="M10,14 C22,8 40,8 54,16 C40,26 22,26 10,14 Z" transform="rotate(12 10 14)"/>
+    </g>
+    <!-- 中下单片叶 -->
+    <g transform="translate(120,236) rotate(24)">
+      <path d="M0,0 C12,-9 30,-11 42,-3 C30,9 12,11 0,0 Z"/>
+    </g>
+    <!-- 茎线 -->
+    <g fill="none" stroke="#2E9E8F" stroke-opacity="0.05" stroke-width="1.6">
+      <path d="M28,44 Q70,26 96,40"/>
+      <path d="M212,126 Q190,150 176,168"/>
+    </g>
+  </g>
+</svg>

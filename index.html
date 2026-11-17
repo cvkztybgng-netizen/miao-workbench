@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#2E9E8F" id="metaTheme">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="miao的工作台">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<title>miao的工作台</title>
+<link rel="stylesheet" href="/style.css">
+  <script>window.__STATIC__=true;window.__GATE_PASS__="miao2026";</script>
+</head>
+<body>
+<!--
+  ServiceWorker：彻底关闭。
+  本应用不注册任何 ServiceWorker，并主动卸载该域名下的残留 SW 与 Cache 存储，
+  避免任何旧缓存导致页面更新不生效。
+-->
+<script>
+  (function hardOffSW(){
+    try {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(rs){
+          rs.forEach(function(r){ r.unregister(); });
+        }).catch(function(){});
+      }
+      if (window.caches && caches.keys) {
+        caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); }).catch(function(){});
+      }
+    } catch (e) {}
+  })();
+</script>
+
+<!-- 登录页 -->
+<div id="loginScreen" class="login-screen" hidden>
+  <div class="login-card">
+    <div class="login-logo" id="loginLogo">🦢</div>
+    <div class="login-title" id="loginTitle">miao的工作台</div>
+    <div class="login-sub">私有云端工作台 · 数据实时同步</div>
+    <form id="loginForm" autocomplete="off">
+      <input type="password" id="loginPassword" placeholder="请输入访问密码" autocomplete="current-password" required>
+      <button type="submit" class="btn primary block" id="loginBtn">进入工作台</button>
+    </form>
+    <div class="login-err" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- 主应用 -->
+<div id="app" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="menuBtn" aria-label="菜单">☰</button>
+    <div class="brand" id="brand">
+      <span class="brand-logo" id="brandLogo">🦢</span>
+      <span class="brand-name" id="brandName">miao的工作台</span>
+    </div>
+    <div class="topbar-right">
+      <span class="sync-dot" id="syncDot" title="同步状态"></span>
+      <button class="icon-btn" id="logoutBtn" aria-label="退出">⎋</button>
+    </div>
+  </header>
+
+  <nav class="sidebar" id="sidebar"></nav>
+  <div class="drawer-mask" id="drawerMask"></div>
+
+  <main class="main" id="main"></main>
+</div>
+
+<!-- 通用弹窗 -->
+<div class="modal-mask" id="modalMask" hidden>
+  <div class="modal" id="modalBox"></div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
