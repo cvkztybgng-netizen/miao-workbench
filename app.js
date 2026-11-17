@@ -666,7 +666,8 @@ function viewTimetable() {
     const d2 = r.data;
     return `<div class="today-row"><span class="t-time">${esc(d2.date || '')}</span>
       <span class="t-name">${esc(d2.orig || '')} → ${esc(d2.now || '')}</span>
-      <span class="t-class">${esc(d2.clazz || '')} · <b class="${d2.notice === '已通知到位' ? 'ok-t' : 'warn-t'}">${esc(d2.notice || '')}</b></span></div>`;
+      <span class="t-class">${esc(d2.clazz || '')} · <b class="${d2.notice === '已通知到位' ? 'ok-t' : 'warn-t'}">${esc(d2.notice || '')}</b></span>
+      <span class="ev-acts"><button type="button" class="cal-act" data-swap-edit="${r.id}" title="编辑调课">✏️</button><button type="button" class="cal-act" data-swap-del="${r.id}" title="删除调课">🗑</button></span></div>`;
   }).join('');
 
   return `
@@ -1049,43 +1050,232 @@ function openLessonEditor(r) {
   });
 }
 
-/* 通用文档导入：lesson(教案) / career(生涯课) / genderedu(性别课) 共用一个入口 */
+/* 通用文档导入：lesson(教案) / career(生涯课) / genderedu(性别课) / track(课堂记录) */
 const IMPORT_TARGETS = {
-  lesson:    { label: '教学设计', bodyField: 'note', extra: { type: '教案', link: '', files: [] } },
-  career:    { label: '生涯课程', bodyField: 'plan', extra: { form: '课程', target: '高一', files: [] } },
-  genderedu: { label: '性别教育', bodyField: 'plan', extra: { form: '课程', files: [] } }
+  lesson:    { label: '教学设计', bodyField: 'note',     titleField: 'title', extra: { type: '教案', link: '', files: [] } },
+  career:    { label: '生涯课程', bodyField: 'plan',     titleField: 'title', extra: { form: '课程', target: '高一', files: [] } },
+  genderedu: { label: '性别教育', bodyField: 'plan',     titleField: 'title', extra: { form: '课程', files: [] } },
+  track:     { label: '课堂记录', bodyField: 'situation', titleField: 'lesson', extra: { files: [] }, withMeta: true }
 };
+
+/* 浏览器端文档解析库按需加载：文件只在本地内存里解析，不上传到第三方 */
+function loadDocLib(kind) {
+  const libs = {
+    docx: { url: './vendor/mammoth.browser.min.js', ready: () => !!(window.mammoth && window.mammoth.extractRawText) },
+    pdf:  { url: './vendor/pdf.min.js', ready: () => !!(window.pdfjsLib && window.pdfjsLib.getDocument) }
+  };
+  const lib = libs[kind];
+  if (!lib) return Promise.reject(new Error('不支持的格式'));
+  if (lib.ready()) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = lib.url;
+    s.onload = () => lib.ready() ? resolve() : reject(new Error('解析库加载失败'));
+    s.onerror = () => reject(new Error('解析库加载失败，请刷新后重试'));
+    document.head.appendChild(s);
+  });
+}
+async function extractDocText(file) {
+  const ext = String(file.name || '').split('.').pop().toLowerCase();
+  if (ext === 'md' || ext === 'markdown' || ext === 'txt' || /markdown|text\/plain/.test(file.type || '')) {
+    return await file.text();
+  }
+  if (ext === 'docx') {
+    await loadDocLib('docx');
+    const res = await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    return String(res.value || '');
+  }
+  if (ext === 'pdf') {
+    await loadDocLib('pdf');
+    const lib = window.pdfjsLib;
+    lib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.min.js';
+    const pdf = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const out = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const tc = await page.getTextContent();
+      let line = '', lastY = null;
+      for (const it of tc.items) {
+        if (!it.str) continue;
+        if (lastY !== null && Math.abs((it.transform[5] || 0) - lastY) > 3) { if (line.trim()) out.push(line.trim()); line = ''; }
+        line += it.str;
+        lastY = it.transform[5] || 0;
+      }
+      if (line.trim()) out.push(line.trim());
+      out.push('');
+    }
+    return out.join('\n').trim();
+  }
+  throw new Error('仅支持 Word(.docx)、PDF、Markdown、TXT');
+}
+function cleanImportHead(s) {
+  let t = String(s || '').replace(/^#{1,4}\s*/, '').trim();
+  const m = t.match(/^【\s*([^】]+)\s*】\s*(.*)$/);
+  if (m) return ((m[2] || m[1]) || '').trim().slice(0, 80);
+  return t.replace(/[【】]/g, '').trim().slice(0, 80);
+}
+function guessTrackMeta(body, baseTitle) {
+  let date = '';
+  const m1 = String(body).match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  const m2 = String(body).match(/(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]/);
+  if (m1) date = `${m1[1]}-${String(m1[2]).padStart(2, '0')}-${String(m1[3]).padStart(2, '0')}`;
+  else if (m2) date = `${new Date().getFullYear()}-${String(m2[1]).padStart(2, '0')}-${String(m2[2]).padStart(2, '0')}`;
+  let clazz = '';
+  const c1 = String(body).match(/【\s*([1-6])\s*】/);
+  const c2 = String(body).match(/(高[一二三]\s*\d{1,2}\s*班|初[六七八九]\s*\d{0,2}\s*班|\d\s*年级\s*\d{0,2}\s*班)/);
+  if (c1) clazz = '高一' + c1[1] + '班';
+  else if (c2) clazz = c2[1].replace(/\s+/g, '');
+  return { date, clazz, lesson: baseTitle };
+}
+function splitImportSections(text, baseTitle, withMeta) {
+  const src = String(text || '').replace(/\r\n?/g, '\n').trim();
+  if (!src) return [];
+  const headRe = withMeta
+    ? /^(#{1,4}\s+|第[一二三四五六七八九十百零〇0-9]+[课章节讲篇]|课时\s*[一二三四五六七八九十0-9]+|【\s*[1-6]\s*】|【[^】]{1,20}班】|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}月\d{1,2}[日号])/
+    : /^(#{1,4}\s+|第[一二三四五六七八九十百零〇0-9]+[课章节讲篇]|课时\s*[一二三四五六七八九十0-9]+|【[^】]{0,30}(课|节|讲|主题|活动)[^】]{0,30}】)/;
+  const parts = [];
+  let cur = [], curTitle = '';
+  const flush = () => {
+    if (!cur.length) return;
+    const body = cur.join('\n').trim();
+    if (body) {
+      let title = curTitle;
+      // 开头的引言段常用第一行当课题，例如「遇见心理课」
+      if (!title) {
+        const first = cur.map(x => String(x).trim()).find(Boolean) || '';
+        if (first && first.length <= 30 && !/^20\d{2}/.test(first) && !/[。；;：:]$/.test(first)) title = cleanImportHead(first);
+      }
+      parts.push(Object.assign(
+        { title: title || baseTitle, body },
+        withMeta ? guessTrackMeta(body, baseTitle) : {}
+      ));
+    }
+    cur = []; curTitle = '';
+  };
+  for (const line of src.split('\n')) {
+    const s = line.trim();
+    const isHead = headRe.test(s);
+    if (isHead) { flush(); curTitle = cleanImportHead(s); }
+    cur.push(line);
+  }
+  flush();
+  return parts.length ? parts : [Object.assign({ title: baseTitle, body: src }, withMeta ? guessTrackMeta(src, baseTitle) : {})];
+}
+async function uploadOneFile(file) {
+  if (file.size > 20 * 1024 * 1024) { toast(`「${file.name}」超过 20MB，附件已跳过`); return null; }
+  const base64 = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1]);
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+  try {
+    const res = await api('POST', '/api/files', { name: file.name, mime: file.type || 'application/octet-stream', base64 });
+    return res.file.id;
+  } catch (e) { toast('附件上传失败：' + e.message); return null; }
+}
 function openDocImport(moduleKey) {
   const cfg = IMPORT_TARGETS[moduleKey] || IMPORT_TARGETS.lesson;
+  let pending = [];
   openModal(`<h2>📥 导入${cfg.label}<button class="m-close" data-close>✕</button></h2>
-    <p class="hint" style="margin:4px 0 12px">选择 Markdown / 文本文件，自动读取内容生成一份${cfg.label}；标题取文件名，正文可继续修订。</p>
-    <input type="file" id="lessonImportFile" accept=".md,.markdown,.txt,text/markdown,text/plain" class="file-input">
-    <div id="lessonImportPreview" class="doc-render" style="max-height:260px;overflow:auto;margin-top:10px" hidden></div>
+    <p class="hint" style="margin:4px 0 12px">支持 Word(.docx) / PDF / Markdown / TXT，可多选。自动识别章节拆成多条，导入前可改标题${cfg.withMeta ? '、日期和班级' : ''}；原文件会作为附件一起保存。</p>
+    <input type="file" id="lessonImportFile" accept=".md,.markdown,.txt,.docx,.pdf" class="file-input" multiple>
+    <div id="lessonImportStatus" class="hint" style="margin:8px 0"></div>
+    <div id="lessonImportList" class="imp-list" hidden></div>
     <div class="m-foot"><button type="button" class="btn" data-close>取消</button>
-      <button type="button" class="btn primary" id="lessonImportSave" disabled>导入为${cfg.label}</button></div>`, 'doc-wide');
+      <button type="button" class="btn" id="lessonImportAll" disabled>全不选</button>
+      <button type="button" class="btn primary" id="lessonImportSave" disabled>导入选中</button></div>`, 'doc-wide');
+  const render = () => {
+    const box = $('#lessonImportList');
+    if (!box) return;
+    const on = pending.filter(x => x.include).length;
+    box.hidden = pending.length === 0;
+    box.innerHTML = `<div class="doc-meta-bar">识别到 ${pending.length} 段 · 已选 ${on} 段 · ${pending.reduce((n, x) => n + x.body.length, 0)} 字</div>` +
+      pending.map((s, i) => `<div class="imp-row" data-imp-row="${i}">
+        <label class="imp-pick"><input type="checkbox" data-imp-check="${i}"${s.include ? ' checked' : ''}><span>${esc(s.file)}</span></label>
+        <div class="imp-fields">
+          <input class="imp-title" data-imp-title="${i}" value="${esc(s.title)}" placeholder="标题">
+          ${cfg.withMeta ? `<div class="imp-metas"><span class="imp-meta">日期 <input type="date" data-imp-date="${i}" value="${esc(s.date || '')}"></span><span class="imp-meta">班级 <input data-imp-clazz="${i}" value="${esc(s.clazz || '')}" placeholder="如 高一1班"></span></div>` : ''}
+          <div class="imp-snippet">${esc(String(s.body).replace(/\s+/g, ' ').slice(0, 180))}${s.body.length > 180 ? '…' : ''} <span class="hint">（共 ${s.body.length} 字，导入完整正文）</span></div>
+        </div>
+      </div>`).join('');
+    const btn = $('#lessonImportSave');
+    if (btn) { btn.disabled = !on; btn.textContent = `导入选中${on ? '（' + on + '）' : ''}`; }
+    const all = $('#lessonImportAll');
+    if (all) { all.disabled = !pending.length; all.textContent = on === pending.length && on > 0 ? '全不选' : '全选'; }
+  };
   const input = $('#lessonImportFile');
-  let loaded = null;
   input.addEventListener('change', async () => {
-    const f = input.files && input.files[0];
-    if (!f) return;
-    if (f.size > 5 * 1024 * 1024) { toast('文件超过 5MB，请拆分后再导入'); return; }
-    const text = await f.text();
-    loaded = { name: f.name.replace(/\.(md|markdown|txt)$/i, ''), text };
-    const pv = $('#lessonImportPreview');
-    pv.innerHTML = `<div class="doc-meta-bar">${f.name} · ${text.length} 字</div><div class="doc-render">${mdToHtml(flowify(text.slice(0, 4000)))}</div>`;
-    pv.hidden = false;
-    $('#lessonImportSave').disabled = false;
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+    const status = $('#lessonImportStatus');
+    pending = [];
+    for (let fi = 0; fi < files.length; fi++) {
+      const f = files[fi];
+      status.textContent = `正在解析 ${fi + 1}/${files.length}：${f.name}…`;
+      try {
+        if (f.size > 20 * 1024 * 1024) throw new Error('文件超过 20MB');
+        const text = await extractDocText(f);
+        const base = f.name.replace(/\.(docx?|pdf|md|markdown|txt)$/i, '');
+        const secs = splitImportSections(text, base, !!cfg.withMeta);
+        if (!secs.length) throw new Error('没有读到文字');
+        secs.forEach(s => pending.push(Object.assign(s, { file: f.name, include: true, source: f })));
+      } catch (e) {
+        toast(`「${f.name}」解析失败：${e.message}`);
+      }
+    }
+    status.textContent = pending.length ? `解析完成，共 ${pending.length} 段。检查标题后点「导入选中」。` : '没有可导入的内容';
+    render();
+  });
+  $('#lessonImportList').addEventListener('change', e => {
+    const t = e.target;
+    const i = t.getAttribute('data-imp-check');
+    if (i === null) return;
+    pending[+i].include = t.checked;
+    render();
+  });
+  $('#lessonImportList').addEventListener('input', e => {
+    const t = e.target;
+    const i = t.getAttribute('data-imp-title');
+    if (i !== null) { pending[+i].title = t.value; return; }
+    const di = t.getAttribute('data-imp-date');
+    if (di !== null) { pending[+di].date = t.value; return; }
+    const ci = t.getAttribute('data-imp-clazz');
+    if (ci !== null) pending[+ci].clazz = t.value;
+  });
+  $('#lessonImportAll').addEventListener('click', () => {
+    const allOn = pending.every(x => x.include);
+    pending.forEach(x => { x.include = !allOn; });
+    render();
   });
   $('#lessonImportSave').addEventListener('click', async () => {
-    if (!loaded) return;
-    const btn = $('#lessonImportSave'); btn.disabled = true; btn.textContent = '导入中…';
+    const chosen = pending.filter(x => x.include);
+    if (!chosen.length) return;
+    const btn = $('#lessonImportSave');
+    btn.disabled = true; btn.textContent = '导入中…';
     try {
-      const data = Object.assign({ title: loaded.name }, cfg.extra);
-      data[cfg.bodyField] = loaded.text;
-      await api('POST', '/api/records', { module: moduleKey, data });
+      const fileIds = {};
+      for (const f of Array.from(new Set(chosen.map(x => x.source)))) {
+        fileIds[f.name] = await uploadOneFile(f);
+      }
+      let n = 0;
+      for (const s of chosen) {
+        const data = Object.assign({}, cfg.extra);
+        data[cfg.titleField] = s.title || s.file.replace(/\.[^.]+$/, '');
+        data[cfg.bodyField] = s.body;
+        if (cfg.withMeta) { data.date = s.date || ''; data.clazz = s.clazz || ''; }
+        const fid = fileIds[s.file];
+        data.files = fid ? [fid] : [];
+        await api('POST', '/api/records', { module: moduleKey, data });
+        n++;
+        btn.textContent = `导入中… ${n}/${chosen.length}`;
+      }
       await loadState();
-      closeModal(); rerender(); toast(`已导入为${cfg.label} ✓`);
-    } catch (err) { toast('导入失败：' + err.message); btn.disabled = false; btn.textContent = '导入为' + cfg.label; }
+      closeModal(); rerender(); toast(`已导入 ${n} 条${cfg.label} ✓`);
+    } catch (err) {
+      toast('导入失败：' + err.message);
+      btn.disabled = false; btn.textContent = '导入选中';
+    }
   });
 }
 function openLessonImport() { return openDocImport('lesson'); }
@@ -1169,8 +1359,8 @@ function viewModule(m) {
   const resTools = m.key === 'resource' ? `
       <button class="btn" id="importLinkBtn">🔗 链接导入</button>
       <button class="btn" id="fetchRssBtn">⚡ 抓取订阅源</button>` : '';
-  const importLabels = { lesson: '教学设计', career: '生涯课程', genderedu: '性别教育' };
-  const lessonTools = importLabels[m.key] ? `<button class="btn" id="lessonImportBtn" data-import-module="${m.key}">📥 导入${importLabels[m.key]}</button>` : '';
+  const importLabels = { lesson: '教学设计', career: '生涯课程', genderedu: '性别教育', track: '课堂记录' };
+  const lessonTools = (!STATIC && importLabels[m.key]) ? `<button class="btn" id="lessonImportBtn" data-import-module="${m.key}">📥 导入${importLabels[m.key]}</button>` : '';
   return `
     <div class="rec-toolbar">
       <input id="recSearch" placeholder="搜索…" value="${esc(S.search)}">
@@ -1356,9 +1546,10 @@ function viewTrack(m) {
   };
   return `<div class="rec-toolbar">
       <input id="recSearch" placeholder="搜索课题、班级或内容…" value="${esc(S.search)}">
+      ${STATIC ? '' : '<button class="btn" id="lessonImportBtn" data-import-module="track">📥 导入课堂记录</button>'}
       <button class="btn primary" id="recAddBtn">＋ 新增</button>
     </div>
-    <p class="hint">📝 按课题分组，每个班一条记录（【1】~【6】= 高一1~6班）；点「查看」读全文</p>
+    <p class="hint">📝 按课题分组，每个班一条记录（【1】~【6】= 高一1~6班）；点「查看」读全文 · 支持上传 Word/PDF/MD 自动拆分导入</p>
     ${keys.length ? keys.map(card).join('') : '<div class="empty"><div class="e-ic">📝</div>暂无课堂记录</div>'}`;
 }
 
@@ -2154,27 +2345,32 @@ async function setEventTime(id, time, dateStr) {
 function viewDailyReport() {
   const st = S.state;
   const today = todayStr();
-  const doneTodos = st.todos.filter(t => t.done && (t.doneAt || '').slice(0, 10) === today);
-  const newRecs = st.records.filter(r => (r.createdAt || '').slice(0, 10) === today);
+  const day = S.dailyDate || today;
+  const doneTodos = st.todos.filter(t => t.done && (t.doneAt || '').slice(0, 10) === day);
+  const newRecs = st.records.filter(r => (r.createdAt || '').slice(0, 10) === day);
   const byMod = {};
   newRecs.forEach(r => { byMod[r.module] = (byMod[r.module] || 0) + 1; });
   const recSummary = Object.keys(byMod).map(k => {
     const m = moduleOf(k);
     return `${m ? m.name : k} ${byMod[k]} 条`;
   }).join('、') || '无';
-  const dailyRecs = st.records.filter(r => r.module === 'daily' && r.data.date === today);
-  const modName = k => { const m = moduleOf(k); return m ? m.name : k; };
+  const dailyRecs = st.records.filter(r => r.module === 'daily' && r.data.date === day);
   const modCount = k => st.records.filter(r => r.module === k).length;
 
-  const reportText = `【工作日报】${formatDateCN(today)}
+  const reportText = `【工作日报】${formatDateCN(day)}
 一、完成待办（${doneTodos.length} 项）
 ${doneTodos.map(t => '  · ' + t.text).join('\n') || '  · 无'}
-二、今日新增记录：${recSummary}
+二、当日新增记录：${recSummary}
 三、其它工作留痕（${dailyRecs.length} 条）
 ${dailyRecs.map(r => '  · [' + (r.data.cat || '') + '] ' + (r.data.content || '')).join('\n') || '  · 无'}`;
 
   return `
-    <div class="card zc-pv"><h3>📋 今日工作日报<span class="right">${formatDateCN(today)}</span></h3>
+    <div class="card zc-pv"><h3>📋 工作日报<span class="right daily-nav">
+      <button type="button" class="btn sm" id="dailyPrev" title="前一天">←</button>
+      <input type="date" id="dailyDate" value="${esc(day)}">
+      <button type="button" class="btn sm" id="dailyNext" title="后一天">→</button>
+      ${day !== today ? '<button type="button" class="btn sm" id="dailyToday">回今天</button>' : ''}
+    </span></h3>
       <div class="r-grid">
         <div class="r-item"><b>完成待办</b>${doneTodos.length} 项</div>
         <div class="r-item"><b>新增记录</b>${recSummary}</div>
@@ -2186,10 +2382,10 @@ ${dailyRecs.map(r => '  · [' + (r.data.cat || '') + '] ' + (r.data.content || '
         <button class="btn sm primary" id="reportCopyBtn">📋 复制日报</button>
         <button class="btn sm" id="dailyAddBtn">＋ 补充其它工作留痕</button>
       </div>
-      <p class="hint">日报由系统自动汇总今日完成待办、新增记录与留痕；补充记录区用于其它工作留痕。</p>
+      <p class="hint">日报由系统自动汇总所选日期的完成待办、新增记录与留痕；可切换日期查看历史，补充记录会写回所选日期。</p>
     </div>
-    <div class="card zc-pv"><h3>🧾 留痕记录（今日）</h3>
-      ${dailyRecs.length ? dailyRecs.map(r => `<div class="today-row"><span class="t-time">${esc(r.data.cat || '')}</span><span class="t-name">${esc(r.data.content || '')}</span></div>`).join('') : '<div class="empty" style="padding:14px 0">今天还没有留痕</div>'}
+    <div class="card zc-pv"><h3>🧾 留痕记录（${formatDateCN(day)}）</h3>
+      ${dailyRecs.length ? dailyRecs.map(r => `<div class="today-row"><span class="t-time">${esc(r.data.cat || '')}</span><span class="t-name">${esc(r.data.content || '')}</span><span class="ev-acts"><button type="button" class="cal-act" data-rec-edit="${r.id}" title="编辑留痕">✏️</button><button type="button" class="cal-act" data-rec-del="${r.id}" title="删除留痕">🗑</button></span></div>`).join('') : '<div class="empty" style="padding:14px 0">这一天还没有留痕</div>'}
     </div>`;
 }
 
@@ -3293,6 +3489,16 @@ function bindGlobal() {
     }
     const recDel = e.target.closest('[data-rec-del]');
     if (recDel) { delRecord(recDel.getAttribute('data-rec-del')); return; }
+    // 课表页的 S.tab 是 timetable，通用 data-rec-edit 取不到模块，这里单独处理调课记录
+    const swapEdit = e.target.closest('[data-swap-edit]');
+    if (swapEdit) {
+      const r = S.state.records.find(x => x.id === swapEdit.getAttribute('data-swap-edit'));
+      const m = moduleOf('swap');
+      if (r && m) recordForm(m, r);
+      return;
+    }
+    const swapDel = e.target.closest('[data-swap-del]');
+    if (swapDel) { delRecord(swapDel.getAttribute('data-swap-del')); return; }
     const apToggle = e.target.closest('[data-apgroup-toggle]');
     if (apToggle) {
       const key = apToggle.getAttribute('data-apgroup-toggle');
@@ -3371,7 +3577,17 @@ function bindGlobal() {
       return;
     }
     if (e.target.id === 'dailyAddBtn') {
-      recordForm(moduleOf('daily'), null, { date: todayStr() });
+      recordForm(moduleOf('daily'), null, { date: S.dailyDate || todayStr() });
+      return;
+    }
+    if (e.target.id === 'dailyPrev' || e.target.id === 'dailyNext' || e.target.id === 'dailyToday') {
+      if (e.target.id === 'dailyToday') S.dailyDate = todayStr();
+      else {
+        const d = new Date((S.dailyDate || todayStr()) + 'T12:00:00');
+        d.setDate(d.getDate() + (e.target.id === 'dailyNext' ? 1 : -1));
+        S.dailyDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+      rerender();
       return;
     }
     if (e.target.id === 'reportCopyBtn') {
@@ -3741,6 +3957,11 @@ function bindGlobal() {
   });
 
   $('#main').addEventListener('change', async e => {
+    if (e.target.id === 'dailyDate' && e.target.value) {
+      S.dailyDate = e.target.value;
+      rerender();
+      return;
+    }
     if (e.target.classList.contains('fe-type')) {
       const row = e.target.closest('.field-edit-row');
       row.classList.toggle('has-opts', e.target.value === 'select');
