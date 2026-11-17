@@ -1008,13 +1008,20 @@ function openLessonEditor(r) {
   });
 }
 
-function openLessonImport() {
-  openModal(`<h2>📥 导入教学设计<button class="m-close" data-close>✕</button></h2>
-    <p class="hint" style="margin:4px 0 12px">选择 Markdown / 文本文件，自动读取内容生成一份教案；标题取文件名，正文可继续修订。</p>
+/* 通用文档导入：lesson(教案) / career(生涯课) / genderedu(性别课) 共用一个入口 */
+const IMPORT_TARGETS = {
+  lesson:    { label: '教学设计', bodyField: 'note', extra: { type: '教案', link: '', files: [] } },
+  career:    { label: '生涯课程', bodyField: 'plan', extra: { form: '课程', target: '高一', files: [] } },
+  genderedu: { label: '性别教育', bodyField: 'plan', extra: { form: '课程', files: [] } }
+};
+function openDocImport(moduleKey) {
+  const cfg = IMPORT_TARGETS[moduleKey] || IMPORT_TARGETS.lesson;
+  openModal(`<h2>📥 导入${cfg.label}<button class="m-close" data-close>✕</button></h2>
+    <p class="hint" style="margin:4px 0 12px">选择 Markdown / 文本文件，自动读取内容生成一份${cfg.label}；标题取文件名，正文可继续修订。</p>
     <input type="file" id="lessonImportFile" accept=".md,.markdown,.txt,text/markdown,text/plain" class="file-input">
     <div id="lessonImportPreview" class="doc-render" style="max-height:260px;overflow:auto;margin-top:10px" hidden></div>
     <div class="m-foot"><button type="button" class="btn" data-close>取消</button>
-      <button type="button" class="btn primary" id="lessonImportSave" disabled>导入为教案</button></div>`, 'doc-wide');
+      <button type="button" class="btn primary" id="lessonImportSave" disabled>导入为${cfg.label}</button></div>`, 'doc-wide');
   const input = $('#lessonImportFile');
   let loaded = null;
   input.addEventListener('change', async () => {
@@ -1032,13 +1039,15 @@ function openLessonImport() {
     if (!loaded) return;
     const btn = $('#lessonImportSave'); btn.disabled = true; btn.textContent = '导入中…';
     try {
-      const data = { title: loaded.name, type: '教案', note: loaded.text, link: '', files: [] };
-      await api('POST', '/api/records', { module: 'lesson', data });
+      const data = Object.assign({ title: loaded.name }, cfg.extra);
+      data[cfg.bodyField] = loaded.text;
+      await api('POST', '/api/records', { module: moduleKey, data });
       await loadState();
-      closeModal(); rerender(); toast('已导入为教案 ✓ 点标题可查看全文');
-    } catch (err) { toast('导入失败：' + err.message); btn.disabled = false; btn.textContent = '导入为教案'; }
+      closeModal(); rerender(); toast(`已导入为${cfg.label} ✓`);
+    } catch (err) { toast('导入失败：' + err.message); btn.disabled = false; btn.textContent = '导入为' + cfg.label; }
   });
 }
+function openLessonImport() { return openDocImport('lesson'); }
 
 function viewModule(m) {
   let recs = recordsOf(m.key);
@@ -1119,7 +1128,8 @@ function viewModule(m) {
   const resTools = m.key === 'resource' ? `
       <button class="btn" id="importLinkBtn">🔗 链接导入</button>
       <button class="btn" id="fetchRssBtn">⚡ 抓取订阅源</button>` : '';
-  const lessonTools = m.key === 'lesson' ? `<button class="btn" id="lessonImportBtn">📥 导入教学设计</button>` : '';
+  const importLabels = { lesson: '教学设计', career: '生涯课程', genderedu: '性别教育' };
+  const lessonTools = importLabels[m.key] ? `<button class="btn" id="lessonImportBtn" data-import-module="${m.key}">📥 导入${importLabels[m.key]}</button>` : '';
   return `
     <div class="rec-toolbar">
       <input id="recSearch" placeholder="搜索…" value="${esc(S.search)}">
@@ -3133,7 +3143,8 @@ function bindGlobal() {
       if (r) openLessonView(r);
       return;
     }
-    if (e.target.id === 'lessonImportBtn') { openLessonImport(); return; }
+    const importBtn = e.target.closest('#lessonImportBtn');
+    if (importBtn) { openDocImport(importBtn.getAttribute('data-import-module') || 'lesson'); return; }
     if (e.target.id === 'docNewBtn') { newDoc(); return; }
     const mdView = e.target.closest('[data-mdview]');
     if (mdView) { e.preventDefault(); openMdPreview(mdView.getAttribute('data-mdview')); return; }
