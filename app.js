@@ -3811,9 +3811,40 @@ function closeDrawer() {
   $('#drawerMask').classList.remove('show');
 }
 
+/* ---------------- 添加到手机/电脑桌面（PWA） ---------------- */
+let deferredInstallPrompt = null;
+function bindInstallHint() {
+  const hint = $('#installHint');
+  const modal = $('#installModal');
+  if (!hint || !modal) return;
+  hint.addEventListener('click', () => {
+    modal.hidden = false;
+    const now = $('#installNow');
+    if (now) now.hidden = !deferredInstallPrompt;
+  });
+  modal.addEventListener('click', e => {
+    if (e.target === modal || e.target.closest('[data-close-install]')) modal.hidden = true;
+  });
+  const now = $('#installNow');
+  if (now) now.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    const choice = await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    modal.hidden = true;
+    if (choice && choice.outcome === 'accepted') toast('正在安装到桌面 ✓');
+  });
+  // 浏览器允许直接安装时（Chrome/Edge），记下事件供「一键安装」使用
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+  });
+}
+
 /* ---------------- 启动 ---------------- */
 (async function boot() {
   bindGlobal();
+  bindInstallHint();
   if (TOKEN) {
     try { await enterApp(); return; } catch (e) { /* token 失效走登录 */ }
   }

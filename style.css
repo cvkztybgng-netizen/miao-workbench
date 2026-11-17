@@ -955,3 +955,20 @@ body.static .card:has(#noticeQuickForm) { display: none !important; }
 .r-title.lesson-open:hover { text-decoration: underline; }
 .lesson-open-ic { color: var(--theme); font-size: 12px; margin-left: 2px; opacity: .7; }
 .lesson-import-preview .doc-render { max-height: 42vh; overflow: auto; }
+
+/* ---------- 登录页：添加到桌面引导 ---------- */
+.install-hint {
+  margin: 4px auto 0; padding: 7px 14px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); border-radius: 20px;
+  font-size: 12px; cursor: pointer; transition: all .2s;
+}
+.install-hint:hover { border-color: var(--theme); color: var(--theme); background: var(--theme-soft); }
+.install-modal h2 .m-close { cursor: pointer; }
+.install-steps { font-size: 14px; line-height: 1.7; color: var(--text); }
+.install-block { margin-bottom: 16px; padding: 14px 16px; background: var(--theme-soft); border-radius: 14px; }
+.install-block .ib-title { font-weight: 700; color: var(--theme-deep); margin-bottom: 8px; }
+.install-block p { margin: 6px 0; }
+.install-block p b { color: var(--theme-deep); }
+.install-block .ib-ic { font-size: 15px; }
+.install-note { color: var(--muted); font-size: 12.5px; margin: 12px 0 4px; }
+#installNow { margin-top: 14px; }

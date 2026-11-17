@@ -46,6 +46,27 @@
       <button type="submit" class="btn primary block" id="loginBtn">进入工作台</button>
     </form>
     <div class="login-err" id="loginErr"></div>
+    <button type="button" class="install-hint" id="installHint" title="把工作台装到手机或电脑桌面">📲 添加到桌面</button>
+  </div>
+</div>
+
+<!-- 安装到桌面指引弹窗 -->
+<div class="modal-mask" id="installModal" hidden>
+  <div class="modal install-modal">
+    <h2>📲 添加到手机 / 电脑桌面<span class="m-close" data-close-install>✕</span></h2>
+    <div class="install-steps">
+      <div class="install-block">
+        <div class="ib-title">📱 手机</div>
+        <p><b>iPhone（Safari）</b>：点底部「分享」<span class="ib-ic">⬆️</span> → 「添加到主屏幕」→ 添加。</p>
+        <p><b>安卓（Chrome）</b>：点右上角「⋮」→ 「安装应用」或「添加到主屏幕」。</p>
+      </div>
+      <div class="install-block">
+        <div class="ib-title">💻 电脑</div>
+        <p><b>Chrome / Edge</b>：点地址栏右侧的安装图标 <span class="ib-ic">⊕</span>，或菜单 → 「投放到桌面 / 安装此站点」。</p>
+      </div>
+      <p class="install-note">添加后桌面会出现一个独立图标，点开即用，像 App 一样全屏，无需每次输网址。</p>
+      <button type="button" class="btn primary block" id="installNow" hidden>一键安装到此设备</button>
+    </div>
   </div>
 </div>
 
