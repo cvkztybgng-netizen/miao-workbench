@@ -990,3 +990,11 @@ body.static .card:has(#noticeQuickForm) { display: none !important; }
 /* ---------- 日报日期切换 ---------- */
 .daily-nav { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; }
 .daily-nav input[type="date"] { width: 148px; padding: 5px 8px; font-size: 13px; }
+
+/* ---------- 静态站本机数据卡 ---------- */
+.local-data-card { margin-top: 14px; }
+.local-data-card .ld-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ld-badge { display: inline-flex; align-items: center; gap: 4px; padding: 5px 11px; border-radius: 18px; background: var(--theme-soft); color: var(--theme-deep); font-size: 12.5px; white-space: nowrap; }
+.ld-badge b { font-size: 14px; }
+.local-data-card .ld-row .hint { flex: 1; min-width: 200px; }
+.local-data-card .ld-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }

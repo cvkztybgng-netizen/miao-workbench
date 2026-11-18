@@ -103,11 +103,183 @@ async function decryptPrivacy(pw) {
   return JSON.parse(new TextDecoder().decode(buf));
 }
 
-async function api(method, path, body) {
-  if (STATIC) {
-    if (method === 'GET' && S.state) return S.state;
-    throw new Error('静态快照为只读模式，不能修改');
+/* ---------------- 静态站：浏览器本地编辑层 ----------------
+ * 线上 data.json 是只读基线；本机增删改存 localStorage，加载时叠加。
+ * 隐私红线区（appoint/interview/case/risk/policy/mt）仍走加密门禁，
+ * 不落盘、不可在本机改写，保持原有承诺。
+ */
+const LOCAL_KEY = 'wb_mia_static_local_v1';
+const PRIVACY_MODULES = new Set(['appoint', 'interview', 'case', 'risk', 'policy', 'mt']);
+let LOCAL = null;
+
+function freshLocal() {
+  return {
+    newRecords: [], recordPatches: {}, deletedRecords: [],
+    newTodos: [], todoPatches: {}, deletedTodos: [],
+    config: {}, timetable: null, timetableOverrides: null,
+    newFiles: [], deletedFiles: []
+  };
+}
+function loadLocal() {
+  try { LOCAL = Object.assign(freshLocal(), JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}')); }
+  catch (e) { LOCAL = freshLocal(); }
+  return LOCAL;
+}
+function saveLocal() {
+  try { localStorage.setItem(LOCAL_KEY, JSON.stringify(LOCAL)); return true; }
+  catch (e) { toast('本机存储空间不足，改动未保存'); return false; }
+}
+function localChangeCount() {
+  if (!LOCAL) loadLocal();
+  return LOCAL.newRecords.length + Object.keys(LOCAL.recordPatches).length + LOCAL.deletedRecords.length
+    + LOCAL.newTodos.length + Object.keys(LOCAL.todoPatches).length + LOCAL.deletedTodos.length
+    + Object.keys(LOCAL.config).length + (LOCAL.timetable ? 1 : 0)
+    + (LOCAL.timetableOverrides ? Object.keys(LOCAL.timetableOverrides).length : 0)
+    + LOCAL.newFiles.length + LOCAL.deletedFiles.length;
+}
+function clearLocalData() { localStorage.removeItem(LOCAL_KEY); LOCAL = freshLocal(); }
+function genLocalId() { return 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+function applyLocalToState(st) {
+  if (!LOCAL) loadLocal();
+  const delR = new Set(LOCAL.deletedRecords);
+  st.records = [...LOCAL.newRecords, ...(st.records || []).filter(r => !delR.has(r.id)).map(r => LOCAL.recordPatches[r.id] || r)];
+  const delT = new Set(LOCAL.deletedTodos);
+  st.todos = [...LOCAL.newTodos, ...(st.todos || []).filter(t => !delT.has(t.id)).map(t => LOCAL.todoPatches[t.id] || t)];
+  st.config = Object.assign({}, st.config, LOCAL.config);
+  if (LOCAL.timetable) st.timetable = LOCAL.timetable;
+  if (LOCAL.timetableOverrides) st.timetableOverrides = LOCAL.timetableOverrides;
+  const delF = new Set(LOCAL.deletedFiles);
+  const fmap = new Map((st.files || []).filter(f => !delF.has(f.id)).map(f => [f.id, f]));
+  LOCAL.newFiles.forEach(x => fmap.set(x.meta.id, x.meta));
+  st.files = [...fmap.values()];
+  return st;
+}
+
+function staticApi(method, path, body) {
+  if (!LOCAL) loadLocal();
+  const st = S.state;
+  const mRecord = path.match(/^\/api\/records\/([\w-]+)$/);
+  const mTodo = path.match(/^\/api\/todos\/([\w-]+)$/);
+  const mFile = path.match(/^\/api\/files\/([\w-]+)$/);
+
+  if (method === 'GET') {
+    if (path === '/api/version') return { version: st ? st.version : 1 };
+    return st;
   }
+  if (path === '/api/timetable/sync') throw new Error('本机版请直接在月历里新增日程');
+  if (['/api/import-link', '/api/fetch-rss', '/api/import-ics', '/api/password'].includes(path)) {
+    throw new Error('该功能需连接服务端，本机版不可用');
+  }
+
+  if (path === '/api/records' && method === 'POST') {
+    const module = body && body.module;
+    if (!module) throw new Error('缺少模块');
+    if (PRIVACY_MODULES.has(module)) throw new Error('隐私档案为加密快照，本机版不可新增');
+    const now = new Date().toISOString();
+    const rec = { id: genLocalId(), module, data: body.data || {}, createdAt: now, updatedAt: now };
+    LOCAL.newRecords.unshift(rec); saveLocal();
+    st.records.unshift(rec);
+    return { ok: true, record: rec };
+  }
+  if (mRecord && method === 'PUT') {
+    const id = mRecord[1];
+    const rec = st.records.find(r => r.id === id);
+    if (!rec) throw new Error('记录不存在');
+    if (PRIVACY_MODULES.has(rec.module)) throw new Error('隐私档案为加密快照，本机版不可修改');
+    const next = Object.assign({}, rec, { data: (body && body.data) || {}, updatedAt: new Date().toISOString() });
+    const ni = LOCAL.newRecords.findIndex(x => x.id === id);
+    if (ni >= 0) LOCAL.newRecords[ni] = next; else LOCAL.recordPatches[id] = next;
+    saveLocal(); Object.assign(rec, next);
+    return { ok: true, record: next };
+  }
+  if (mRecord && method === 'DELETE') {
+    const id = mRecord[1];
+    const rec = st.records.find(r => r.id === id);
+    if (rec && PRIVACY_MODULES.has(rec.module)) throw new Error('隐私档案为加密快照，本机版不可删除');
+    LOCAL.newRecords = LOCAL.newRecords.filter(x => x.id !== id);
+    delete LOCAL.recordPatches[id];
+    if (!LOCAL.deletedRecords.includes(id)) LOCAL.deletedRecords.push(id);
+    saveLocal(); st.records = st.records.filter(r => r.id !== id);
+    return { ok: true };
+  }
+
+  if (path === '/api/todos' && method === 'POST') {
+    if (!body || !body.text) throw new Error('内容不能为空');
+    const t = { id: genLocalId(), text: String(body.text).trim(), due: body.due || '',
+      priority: ['low', 'mid', 'high'].includes(body.priority) ? body.priority : 'mid',
+      done: false, createdAt: new Date().toISOString() };
+    LOCAL.newTodos.unshift(t); saveLocal(); st.todos.unshift(t);
+    return { ok: true, todo: t };
+  }
+  if (mTodo && method === 'PUT') {
+    const id = mTodo[1];
+    const t = st.todos.find(x => x.id === id);
+    if (!t) throw new Error('待办不存在');
+    const next = Object.assign({}, t, body || {});
+    if (body && 'done' in body) next.doneAt = body.done ? new Date().toISOString() : '';
+    const ni = LOCAL.newTodos.findIndex(x => x.id === id);
+    if (ni >= 0) LOCAL.newTodos[ni] = next; else LOCAL.todoPatches[id] = next;
+    saveLocal(); Object.assign(t, next);
+    return { ok: true, todo: next };
+  }
+  if (mTodo && method === 'DELETE') {
+    const id = mTodo[1];
+    LOCAL.newTodos = LOCAL.newTodos.filter(x => x.id !== id);
+    delete LOCAL.todoPatches[id];
+    if (!LOCAL.deletedTodos.includes(id)) LOCAL.deletedTodos.push(id);
+    saveLocal(); st.todos = st.todos.filter(x => x.id !== id);
+    return { ok: true };
+  }
+
+  if (path === '/api/config' && method === 'POST') {
+    Object.assign(LOCAL.config, body || {}); saveLocal();
+    Object.assign(st.config, body || {}); applyTheme();
+    return { ok: true, version: st.version };
+  }
+  if (path === '/api/timetable' && method === 'PUT') {
+    LOCAL.timetable = JSON.parse(JSON.stringify(body.timetable)); saveLocal();
+    st.timetable = LOCAL.timetable;
+    return { ok: true, timetable: st.timetable, version: st.version };
+  }
+  if (path === '/api/timetable/override' && method === 'PUT') {
+    const { week, day, period, cell } = body || {};
+    const ov = JSON.parse(JSON.stringify(st.timetableOverrides || {}));
+    if (!ov[week]) ov[week] = {};
+    if (!ov[week][day]) ov[week][day] = {};
+    if (cell && (cell.subject || cell.teacher || cell.type || cell.clear)) ov[week][day][String(period)] = cell;
+    else {
+      delete ov[week][day][String(period)];
+      if (!Object.keys(ov[week][day]).length) delete ov[week][day];
+      if (!Object.keys(ov[week]).length) delete ov[week];
+    }
+    LOCAL.timetableOverrides = ov; saveLocal(); st.timetableOverrides = ov;
+    return { ok: true, timetableOverrides: ov, version: st.version };
+  }
+
+  if (path === '/api/files' && method === 'POST') {
+    if (!body || !body.base64) throw new Error('缺少文件内容');
+    if (body.base64.length * 3 / 4 > 1024 * 1024) throw new Error('本机版附件请控制在 1MB 以内');
+    const meta = { id: genLocalId(), name: body.name || '附件', mime: body.mime || 'application/octet-stream',
+      size: Math.round(body.base64.length * 3 / 4), createdAt: new Date().toISOString(), local: true };
+    LOCAL.newFiles.push({ meta, base64: body.base64 });
+    if (!saveLocal()) { LOCAL.newFiles.pop(); throw new Error('本机存储空间不足'); }
+    st.files.push(meta);
+    return { ok: true, file: meta };
+  }
+  if (mFile && method === 'DELETE') {
+    const id = mFile[1];
+    LOCAL.newFiles = LOCAL.newFiles.filter(x => x.meta.id !== id);
+    if (!LOCAL.deletedFiles.includes(id)) LOCAL.deletedFiles.push(id);
+    saveLocal(); st.files = st.files.filter(f => f.id !== id);
+    return { ok: true };
+  }
+
+  throw new Error('本机版不支持该操作：' + method + ' ' + path);
+}
+
+async function api(method, path, body) {
+  if (STATIC) return staticApi(method, path, body);
   const opts = { method, headers: { 'Authorization': 'Bearer ' + TOKEN } };
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
@@ -150,7 +322,12 @@ async function loadState() {
   if (STATIC) {
     const res = await fetch('data.json');
     if (!res.ok) throw new Error('data.json 读取失败');
-    S.state = await res.json();
+    S.state = applyLocalToState(await res.json());
+    // 隐私区由口令在本机解密、只存内存；刷新后重新叠加（不落盘）
+    if (S.privacyUnlocked && S.privacyRecords) {
+      const have = new Set(S.state.records.map(r => r.id));
+      S.privacyRecords.forEach(r => { if (!have.has(r.id)) S.state.records.push(r); });
+    }
     applyTheme();
     return S.state;
   }
@@ -514,6 +691,17 @@ function viewOverview() {
         <span class="week-badge">第 ${teachingWeek()} 教学周</span></div>
       <div class="holiday-row">${holidayChips}</div>
     </div>
+    ${STATIC ? `<div class="card local-data-card">
+      <h3>💾 本机数据<span class="right">改动只存在这台设备的浏览器里</span></h3>
+      <div class="ld-row">
+        <span class="ld-badge">本机改动 <b>${localChangeCount()}</b> 项</span>
+        <span class="hint">线上快照只读；你新增/修改的日程与记录会存到本机，刷新不丢，不会上传。</span>
+      </div>
+      <div class="ld-actions">
+        <button class="btn sm" id="localExportBtn">⬇️ 导出本机备份</button>
+        <button class="btn sm" id="localClearBtn">♻️ 清除本机改动</button>
+      </div>
+    </div>` : ''}
     <div class="sec-chip-row">${secChips}</div>
     <div class="card zc-jw"><h3>📆 月历<span class="right">圆点 = 事件类型 · 点击日期查看</span></h3>
       ${viewMonthCalendar()}
@@ -795,6 +983,14 @@ function fileChip(fid) {
   const f = (S.state.files || []).find(x => x.id === fid);
   if (!f) return '';
   if (STATIC) {
+    // 本机新增的附件：base64 存在本地，可下载/预览
+    if (f.local && LOCAL) {
+      const lf = (LOCAL.newFiles || []).find(x => x.meta.id === f.id);
+      if (lf && /markdown|text\/plain|\.md$/i.test(f.mime + ' ' + f.name)) {
+        return `<a class="file-chip md-view" href="" data-local-md="${f.id}" onclick="return false">📖 ${esc(f.name)} · 本机</a>`;
+      }
+      if (lf) return `<a class="file-chip" href="data:${esc(f.mime || 'application/octet-stream')};base64,${lf.base64}" download="${esc(f.name)}">📎 ${esc(f.name)} · 本机</a>`;
+    }
     if (f.pub) return `<a class="file-chip md-view" href="" data-mdview="${f.id}" onclick="return false">📖 ${esc(f.name)}</a>`;
     return `<span class="file-chip file-locked">🔒 ${esc(f.name)}（未公开）</span>`;
   }
@@ -3827,6 +4023,23 @@ function bindGlobal() {
       $('#modulesBox').appendChild(box);
       return;
     }
+    if (e.target.id === 'localExportBtn') {
+      const blob = new Blob([JSON.stringify(S.state, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'miao-workbench-本机备份-' + todayStr() + '.json';
+      a.click();
+      toast('本机备份已导出');
+      return;
+    }
+    if (e.target.id === 'localClearBtn') {
+      if (!confirm('确定清除本机所有改动，恢复到线上只读快照吗？\n导出备份后再操作更安全。此操作不可撤销。')) return;
+      clearLocalData();
+      S.privacyRecords = null; S.privacyUnlocked = false;
+      await loadState(); rerender();
+      toast('本机改动已清除，已恢复线上快照');
+      return;
+    }
     if (e.target.id === 'exportBtn') {
       const blob = new Blob([JSON.stringify(S.state, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
@@ -3882,6 +4095,7 @@ function bindGlobal() {
         // 合并解密记录进内存（只加隐私模块，不覆盖已有）
         const have = new Set((S.state.records || []).map(r => r.id));
         for (const r of recs) if (!have.has(r.id)) S.state.records.push(r);
+        S.privacyRecords = recs;   // 内存缓存，刷新后 loadState 重新叠加，不落 localStorage
         S.privacyUnlocked = true;
         rerender();
         toast(`已解密 ${recs.length} 条隐私档案 🔐`);
