@@ -62,14 +62,16 @@ const SECTIONS = {
   class:    { name: '上课', icon: '📚', desc: '教务管理 · 课表/备课/调课', chip: 'jw' },
   counsel:  { name: '个辅', icon: '🔒', desc: '隐私红线区 · 脱敏管理', chip: 'an', privacy: true },
   crisis:   { name: '危机干预', icon: '🚨', desc: '隐私红线区 · 最高保密', chip: 'an', privacy: true },
-  research: { name: '教研培训', icon: '🎓', desc: '知识沉淀 · 学习归档', chip: 'sw' },
-  paper:    { name: '论文课题', icon: '📝', desc: '学术输出 · 全流程', chip: 'sw' },
-  contest:  { name: '比赛', icon: '🏆', desc: '职业发展 · 赛事/获奖', chip: 'sw' },
-  admin:    { name: '事务性工作', icon: '🗂️', desc: '行政追踪 · 看板', chip: 'pv' },
-  other:    { name: '其它工作', icon: '🧩', desc: '日报留痕 · 灵感捕获 · 社群课程', chip: 'pv' },
-  me:       { name: '我的履历', icon: '🪪', desc: '教育/工作 · 培训 · 社群参与', chip: 'sw' },
+  research: { name: '学习', icon: '🎓', desc: '知识沉淀 · 学习笔记/资料', chip: 'sw' },
+  paper:    { name: '课题', icon: '📝', desc: '学术输出 · 课题/文献/论文', chip: 'sw' },
+  contest:  { name: '比赛', icon: '🏆', desc: '职业发展 · 赛事/获奖（已归入个人履历）', chip: 'sw', hidden: true },
+  admin:    { name: '行政', icon: '🗂️', desc: '行政追踪 · 看板', chip: 'pv' },
+  other:    { name: '其它工作', icon: '🧩', desc: '日报留痕 · 灵感捕获 · 日程', chip: 'pv' },
+  me:       { name: '个人履历', icon: '🪪', desc: '教育/工作 · 培训 · 比赛获奖 · 社群', chip: 'sw' },
   self:     { name: '自我关怀', icon: '💚', desc: '能量蓄水池 · 疗愈与放松', chip: 'sw' }
 };
+// 首页板块速览只显示这 6 个；目录（侧边栏）保留全部板块
+const HOME_SECTIONS = ['class', 'counsel', 'research', 'paper', 'admin', 'self'];
 
 /* ---------------- API ---------------- */
 let TOKEN = localStorage.getItem('wb_token') || '';
@@ -313,6 +315,7 @@ const S = {
   docTimer: null,
   docSave: null,
   expCat: null,         // 个人经历：类别筛选
+  resumeKind: '',       // 履历总览：类型筛选
   rosterClass: '',      // 学生名册：当前选中的班级
   apOpenGroups: new Set(), // 预约：展开的周期组
   privacyUnlocked: false  // 静态站隐私区：本机解密后的解锁状态（仅内存，刷新需重输）
@@ -575,7 +578,7 @@ function navGroups() {
     { label: null, items: [{ id: 'overview', icon: '🏠', name: '首页 · 指挥舱' }] },
     { label: '教务', chip: 'jw', items: [sec('class')] },
     { label: '隐私红线区', chip: 'an', items: [sec('counsel'), sec('crisis')] },
-    { label: '专业成长', chip: 'sw', items: [sec('research'), sec('paper'), sec('contest')] },
+    { label: '专业成长', chip: 'sw', items: [sec('research'), sec('paper')] },
     { label: '个人', chip: 'sw', items: [sec('me')] },
     { label: '行政', chip: 'pv', items: [sec('admin'), sec('other')] },
     { label: '自我关怀', chip: 'sw', items: [sec('self')] },
@@ -602,7 +605,7 @@ function navigate(view, key, tab) {
   S.section = key || null;
   if (key && view === 'section') {
     const mods = S.state.config.modules.filter(m => m.section === key);
-    const defaultTab = key === 'class' ? 'timetable' : key === 'other' ? 'daily' : key === 'self' ? 'quote' : (mods[0] ? mods[0].key : null);
+    const defaultTab = key === 'class' ? 'timetable' : key === 'other' ? 'daily' : key === 'self' ? 'quote' : key === 'me' ? 'resume' : (mods[0] ? mods[0].key : null);
     S.tab = tab || defaultTab;
   } else {
     S.tab = null;
@@ -677,7 +680,7 @@ function viewOverview() {
   }).join('');
 
   // 板块速览
-  const secChips = Object.keys(SECTIONS).map(k =>
+  const secChips = HOME_SECTIONS.map(k =>
     `<button class="sec-chip" data-nav="section" data-key="${k}">${SECTIONS[k].icon} ${SECTIONS[k].name}</button>`
   ).join('');
 
@@ -754,7 +757,12 @@ function viewSection(sectionKey) {
   if (sectionKey === 'class') tabs.push({ key: 'timetable', name: '聚合周课表', icon: '🗓️' });
   else if (sectionKey === 'other') tabs.push({ key: 'daily', name: '工作日报', icon: '📋' });
   else if (sectionKey === 'self') tabs.push({ key: 'quote', name: '疗愈金句', icon: '🌤️' }, { key: 'relax', name: '放松工具箱', icon: '🎧' });
-  for (const m of mods) tabs.push({ key: m.key, name: m.name, icon: m.icon || '📁' });
+  else if (sectionKey === 'me') tabs.push({ key: 'resume', name: '履历总览', icon: '📖' });
+  for (const m of mods) {
+    // 比赛/获奖/证明已并入个人履历，不在 me 板块重复列独立标签（统一在履历总览按年份+类型展示）
+    if (sectionKey === 'me' && ['contest', 'award', 'cert'].includes(m.key)) continue;
+    tabs.push({ key: m.key, name: m.name, icon: m.icon || '📁' });
+  }
 
   if (!tabs.some(t => t.key === S.tab)) S.tab = tabs[0] ? tabs[0].key : null;
 
@@ -765,6 +773,7 @@ function viewSection(sectionKey) {
   let body = '';
   if (S.tab === 'timetable') body = viewTimetable();
   else if (S.tab === 'daily') body = viewDailyReport();
+  else if (S.tab === 'resume') body = viewResume();
   else if (S.tab === 'quote') body = viewQuotes();
   else if (S.tab === 'relax') body = viewRelax();
   else {
@@ -1097,6 +1106,76 @@ function viewExp(m) {
     </div>
     <div class="exp-chips">${chips}</div>
     <div class="exp-list">${rows || '<div class="empty"><div class="e-ic">🪪</div>暂无经历记录</div>'}</div>`;
+}
+
+/* ================= 个人履历总览（经历/比赛/获奖/证书 按年份+类型分类） ================= */
+const RESUME_KINDS = [
+  { module: 'contest', label: '赛事', icon: '🏆' },
+  { module: 'award',   label: '获奖', icon: '🥇' },
+  { module: 'cert',    label: '培训证明', icon: '📇' },
+  { module: 'exp',     label: '经历', icon: '🪪' }
+];
+function resumeKindOf(r) {
+  const k = RESUME_KINDS.find(x => x.module === r.module);
+  return k ? k.label : '其它';
+}
+function resumeYearOf(r) {
+  const s = String(r.data.date || r.data.due || r.createdAt || '');
+  const m = s.match(/((?:19|20)\d{2})/);
+  return m ? m[1] : '更早';
+}
+function resumeFieldsHtml(r) {
+  const d = r.data || {};
+  const bits = [];
+  if (d.org) bits.push(`<span class="rz-org">${esc(d.org)}</span>`);
+  if (d.level) bits.push(`<span class="rz-tag">${esc(d.level)}</span>`);
+  if (d.prize) bits.push(`<span class="rz-prize">${esc(d.prize)}</span>`);
+  if (d.stage) bits.push(`<span class="rz-tag">${esc(d.stage)}</span>`);
+  if (d.cat && r.module === 'exp') bits.push(`<span class="rz-tag">${esc(d.cat)}</span>`);
+  if (d.note) bits.push(`<span class="rz-note">${esc(d.note)}</span>`);
+  const allFiles = [];
+  for (const k of Object.keys(d)) if (Array.isArray(d[k]) && k === 'files') d[k].forEach(id => allFiles.push(id));
+  const filesHtml = allFiles.length ? `<span class="rz-files">${allFiles.map(fileChip).join('')}</span>` : '';
+  return bits.join('') + filesHtml;
+}
+function viewResume() {
+  const mods = RESUME_KINDS.map(x => x.module);
+  let all = S.state.records.filter(r => mods.includes(r.module));
+  const totals = {};
+  RESUME_KINDS.forEach(k => { totals[k.label] = all.filter(r => r.module === k.module).length; });
+  if (S.resumeKind) all = all.filter(r => resumeKindOf(r) === S.resumeKind);
+  if (S.search) {
+    const q = S.search.toLowerCase();
+    all = all.filter(r => Object.values(r.data || {}).some(v => String(v || '').toLowerCase().includes(q)));
+  }
+  const groups = {};
+  for (const r of all) {
+    const y = resumeYearOf(r);
+    (groups[y] = groups[y] || []).push(r);
+  }
+  const years = Object.keys(groups).sort((a, b) => a === '更早' ? 1 : b === '更早' ? -1 : String(b).localeCompare(String(a)));
+  const chips = [`<button class="exp-chip${S.resumeKind ? '' : ' active'}" data-resumekind="">全部 <b>${S.state.records.filter(r => mods.includes(r.module)).length}</b></button>`]
+    .concat(RESUME_KINDS.map(k => `<button class="exp-chip${S.resumeKind === k.label ? ' active' : ''}" data-resumekind="${esc(k.label)}">${k.icon} ${k.label} <b>${totals[k.label]}</b></button>`))
+    .join('');
+  const rows = years.map(y => `
+    <div class="exp-group">
+      <div class="exp-year">${esc(y)}<span>${groups[y].length} 条</span></div>
+      ${groups[y].sort((a, b) => String(b.data.date || b.data.due || '').localeCompare(String(a.data.date || a.data.due || ''))).map(r => `
+        <div class="exp-row rz-row">
+          <span class="ex-date">${esc(r.data.date || r.data.due || '')}</span>
+          <span class="ex-cat">${esc(resumeKindOf(r))}</span>
+          <span class="ex-main"><b>${esc(r.data.title || '未命名')}</b>${resumeFieldsHtml(r)}</span>
+          <span class="ex-act"><button data-rec-edit="${r.id}">编辑</button><button data-rec-del="${r.id}">删除</button></span>
+        </div>`).join('')}
+    </div>`).join('');
+  return `
+    <div class="rec-toolbar exp-tools">
+      <input id="recSearch" placeholder="搜索履历 / 赛事 / 获奖 / 证书…" value="${esc(S.search)}">
+      <button class="btn primary" id="recAddBtn">＋ 新增经历</button>
+    </div>
+    <div class="exp-chips">${chips}</div>
+    <p class="hint">按年份分组，类型可筛选：经历、赛事、获奖、培训证明。想登记新的比赛成绩，用「＋ 新增经历」选类别，或到对应分类标签单独录入。</p>
+    <div class="exp-list">${rows || '<div class="empty"><div class="e-ic">🪪</div>暂无履历记录</div>'}</div>`;
 }
 
 /* ================= 个案辅导记录（按班级分组 · 查看全文） ================= */
@@ -3573,6 +3652,8 @@ function bindGlobal() {
     if (docSel) { selectDoc(docSel.getAttribute('data-doc-select')); return; }
     const expCat = e.target.closest('[data-expcat]');
     if (expCat) { S.expCat = expCat.getAttribute('data-expcat') || null; rerender(); return; }
+    const resumeKind = e.target.closest('[data-resumekind]');
+    if (resumeKind) { S.resumeKind = resumeKind.getAttribute('data-resumekind') || ''; rerender(); return; }
     const caseView = e.target.closest('[data-case-view]');
     if (caseView) {
       const r = S.state.records.find(x => x.id === caseView.getAttribute('data-case-view'));
@@ -3754,7 +3835,7 @@ function bindGlobal() {
 
   $('#main').addEventListener('click', async e => {
     if (e.target.id === 'recAddBtn' || e.target.id === 'swapQuickBtn' || e.target.id === 'swapAddBtn') {
-      const key = e.target.id === 'recAddBtn' ? S.tab : 'swap';
+      const key = e.target.id === 'recAddBtn' ? (S.tab === 'resume' ? 'exp' : S.tab) : 'swap';
       const m = moduleOf(key);
       if (m) recordForm(m, null);
       return;

@@ -842,6 +842,13 @@ body.static .card:has(#noticeQuickForm) { display: none !important; }
   .ex-main { grid-column: 1 / -1; }
   .ex-act { grid-column: 1 / -1; text-align: right; }
 }
+/* 履历总览：一行内多项元信息 */
+.rz-row .ex-main b { display: block; margin-bottom: 2px; }
+.rz-org { color: var(--muted); font-size: 12px; margin-right: 8px; }
+.rz-tag { display: inline-block; font-size: 11px; color: var(--theme-deep); background: var(--theme-soft); border-radius: 5px; padding: 1px 6px; margin-right: 6px; }
+.rz-prize { color: #B8860B; font-size: 12.5px; font-weight: 600; margin-right: 8px; }
+.rz-note { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.rz-files { display: block; margin-top: 4px; }
 
 /* ================= 个案辅导记录 · 时间线弹窗 ================= */
 .cv-head { padding: 4px 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
